@@ -63,7 +63,7 @@ CFLAGS = -D__IFC
 
 LDFLAGS= -L$(NETCDF)/lib -lnetcdff -lnetcdf
 
-FC = mpiifort -mkl -align commons 
+FC = mpiifort -mkl -align commons  -warn unused
 CC   = mpiicc
 LD   = mpiifort
 

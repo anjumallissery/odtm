@@ -43,7 +43,7 @@ FMS_UTILITIES="$FMS_UTILS/include \
 				$FMS_UTILS/axis_utils \
 				$FMS_UTILS/mosaic"
 
-paths="$odtmroot/src/odtm"
+paths="$odtmroot/src/odtm $odtmroot/src/nemuro"
 
 
 
