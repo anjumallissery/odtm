@@ -18,21 +18,22 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
             use interp_extrap_mod, only : interp_extrap_we_profile
             use heat_flux_mod, only : heat_flux
-            use moto_mod, only : MT1
+            use moto_mod, only : MT1, kmax
+            use nemuro_mod, only : tr_nemuro=>tr, ntr_nemuro=>ntracers, tr_read
 
         implicit none
-        real tempin(51), saltin(51)
-        real rmldout
-        real uvelin(51), vvelin(51), we_profin(0:52)
-        real sswin(51)
-        real SM(51), SH(51), YQ(51)
-        real tauxin, tauyin, entr_flux(51)
-        real diag1(51), diag2(51), diag3(51)
-        real diag4(51), diag5(51), diag6(51)
-        real tx, ty, Lv, pme_eps
-        integer tau_index
-        integer :: i, j, k      
-        integer :: kmax, kkk, ii, jj, kk, icval
+        real :: tempin(kmax), saltin(kmax), tr_in(kmax,ntr_nemuro)
+        real :: rmldout
+        real :: uvelin(kmax), vvelin(kmax), we_profin(0:kmax+1)
+        real :: sswin(kmax)
+        real :: SM(kmax), SH(kmax), YQ(kmax)
+        real :: tauxin, tauyin, entr_flux(kmax)
+        real :: diag1(kmax), diag2(kmax), diag3(kmax)
+        real :: diag4(kmax), diag5(kmax), diag6(kmax)
+        real :: tx, ty, Lv, pme_eps
+        integer :: tau_index
+        integer :: i, j, k, ntr
+        integer :: kkk, ii, jj, kk, icval
         real :: albedo, sfx, rAlpha2, rL1, rchla, rPAR, rinfraRed, rvisible
         real :: rvisible_extinct, cldin, uwndin, vwndin, speed, airt_in, sphm_in
         real :: sst_in, qs, ql, qb, rAlpha1, rL2, qnet_in, pme_in, rLATin
@@ -45,7 +46,6 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
          do i=isc, iec
          do j=jsc, jec
 
-         kmax = 51
          dzmym(1) = 5.0
          zdepth(1) = 5.0
          do kkk=2,kmax
@@ -64,6 +64,7 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
          ! print *, 'test=', temp(i,kk,j,1), rkmh(i,j)
          tempin(kk) = temp(i,j,kk,1) *rkmh(i,j)
          saltin(kk) = salt(i,j,kk,1) *rkmh(i,j)
+         tr_in(kk,:) = tr_nemuro(i,j,kk,1,:) *rkmh(i,j)
          uvelin(kk) = uvel(i,j,kk,1) *rkmh(i,j)
          vvelin(kk) = vvel(i,j,kk,1) *rkmh(i,j)
          we_profin(kk) = we_prof(kk)
@@ -129,8 +130,8 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
          rmld_misc(i,j,15)  = rvr(i,j)
 
 
-         call MT1 (tempin, saltin, uvelin, vvelin, tauxin,
-     &    tauyin, qnet_in, sswin, pme_in,
+         call MT1 (tempin, saltin, tr_in, uvelin, vvelin, tauxin,
+     &    tauyin, qnet_in, sswin, pme_in, ntr_nemuro,
      &    rLATin, dt, SM, SH, we_profin, we_baro, icval, YQ, entr_flux,
      &    speed, pme_eps, rvr_runoff,
      &    diag1, diag2, diag3, diag4, diag5, diag6,ii,jj)
@@ -139,6 +140,7 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 !         rmld_misc(i,kk,j) = entr_flux(kk)
          temp(i,j,kk,2) = tempin(kk) * rkmh(i,j)
          salt(i,j,kk,2) = saltin(kk) * rkmh(i,j)
+         tr_nemuro(i,j,kk,2,:) = tr_in(kk,:) * rkmh(i,j)
          uvel(i,j,kk,2) = uvelin(kk) * rkmh(i,j)
          vvel(i,j,kk,2) = vvelin(kk) * rkmh(i,j)
 
@@ -146,25 +148,50 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
          relax_East = 0.0
 #include "cparam.h"
          if (relax_South .eq. 1) then
-         if (j .le. widS) temp(i,j,kk,2) = temp(i,j,kk,2) -
-     & (tempin(kk) - temp_read(i,j,kk,month))*dtts*
-     & rkmh(i,j)/(day2sec*100.0*((j-1)/widS))
-         if (j .le. widS) salt(i,j,kk,2) = salt(i,j,kk,2) -
-     & (saltin(kk) - salt_read(i,j,kk,month))*dtts*
-     & rkmh(i,j)/(day2sec*100.0*((j-1)/widS))
+
+         if (j .le. widS) then 
+            temp(i,j,kk,2) = temp(i,j,kk,2) -
+     &      (tempin(kk) - temp_read(i,j,kk,month))*dtts*
+     &      rkmh(i,j)/(day2sec*100.0*((j-1)/widS))
+
+            salt(i,j,kk,2) = salt(i,j,kk,2) -
+     &      (saltin(kk) - salt_read(i,j,kk,month))*dtts*
+     &      rkmh(i,j)/(day2sec*100.0*((j-1)/widS))
+
+            do ntr=1, ntr_nemuro
+                tr_nemuro(i,j,kk,2,ntr) = tr_nemuro(i,j,kk,2,ntr) -
+     &          (tr_in(kk,ntr) - tr_read(i,j,kk,month,ntr))*dtts*
+     &          rkmh(i,j)/(day2sec*100.0*((j-1)/widS))
+            end do
+        end if
+
 c         if (j .le. widS) pvort(i,1,j) = (j-1)/widS
 c         if (j .le. widS) pvort(i,2,j) = (widS+1-j)/widS
+
          endif
+
+
          if (relax_East .eq. 1) then
-         if (i .ge. imt-widE+1) temp(i,j,kk,2) = temp(i,j,kk,2) -
-     & (tempin(kk) - temp_read(i,j,kk,month))*dtts*
-     & rkmh(i,j)/(day2sec*100.0*((widE+i-imt)/widE))
-         if (i .ge. imt-widE+1) salt(i,j,kk,2) = salt(i,j,kk,2) -
-     & (saltin(kk) - salt_read(i,j,kk,month))*dtts*
-     & rkmh(i,j)/(day2sec*100.0*((widE+i-imt)/widE))
+         if (i .ge. imt-widE+1) then
+            temp(i,j,kk,2) = temp(i,j,kk,2) -
+     &      (tempin(kk) - temp_read(i,j,kk,month))*dtts*
+     &      rkmh(i,j)/(day2sec*100.0*((widE+i-imt)/widE))
+
+            salt(i,j,kk,2) = salt(i,j,kk,2) -
+     &      (saltin(kk) - salt_read(i,j,kk,month))*dtts*
+     &      rkmh(i,j)/(day2sec*100.0*((widE+i-imt)/widE))
+            
+            do ntr = 1, ntr_nemuro
+                tr_nemuro(i,j,kk,2,ntr) = tr_nemuro(i,j,kk,2,ntr) -
+     &          (tr_in(kk,ntr) - tr_read(i,j,kk,month,ntr))*dtts*
+     &          rkmh(i,j)/(day2sec*100.0*((widE+i-imt)/widE))
+            end do
+
+        end if
+
 c         if (i .ge. imt-widE+1) pvort(i,1,j) = (imt-i)/widE
 c         if (i .ge. imt-widE+1) pvort(i,2,j) = (widE+i-imt)/widE
-         endif
+        endif
         enddo
 
         if ( mod(loop,100000) .eq. 0) then

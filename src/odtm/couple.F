@@ -1,10 +1,15 @@
         module couple_mod
         use interp_extrap_mod, only : interp_extrap
         use mpp_mod, only : mpp_pe
+        use size_mod, only : rdxu, rkmh, rdy, rdyv, rdxh, rdyh, imt, jmt
+        use nemuro_mod, only : tr, ntracers, tr_read
+        use moto_mod, only : kmaxMYM => kmax
 
         implicit none
 
         private
+
+        real, dimension(:,:,:), pointer :: fld
 
         public :: couple_rgmld
 
@@ -15,11 +20,11 @@
         ! linear interpolation for wind forcing
 
         use size_mod, only : isc, iec, jsc, jec
-        use size_mod, only : taum, taun, taup, taus, tracedubdxmld, tracedvbdymld
+        use size_mod, only : taum, taun, taup, taus
         use size_mod, only : loop, km, i, j, k, rkmh, t, u, rkmu, v
         use size_mod, only : rkmv, h, nn, temp, rkmu, rkmv
-        use size_mod, only : salt, uvel, vvel, rdx, rdxh, rdy, rdyh
-        use size_mod, only : temp_read, salt_read, month, theta, kmaxMYM
+        use size_mod, only : salt, uvel, vvel, rdx, rdxh, rdyh
+        use size_mod, only : temp_read, salt_read, month, theta
         use param_mod, only : day2sec, dt, sec2day
 
         implicit none
@@ -48,11 +53,11 @@
         real :: alpha_rgt, beta_mldt
 
         real :: diffuse_temp, diffuse_salt, rtheta_vu, rtheta_vd
-        real :: relax_on_off, gama, diffuse_MY, diffuse_tr
-        real :: relax_south, widS, relax_East, widE, rdrag
+        real :: diffuse_MY, diffuse_tracers(ntracers)
         real :: rtemp1, rtemp2, rtemp3, rtemp4
+        real :: tracedubdxmld(kmaxMYM,4+ntracers), tracedvbdymld(kmaxMYM,4+ntracers)
         integer :: hstart, hend, ii, jj, kk, tau_index
-        integer :: im, jm, irepeat, nt, ip, jp, kmax
+        integer :: im, jm, irepeat, nt, ip, jp, kmax, ntr
 
         tracedubdxmld(:,:) = 0.0
         tracedvbdymld(:,:) = 0.0
@@ -62,14 +67,28 @@
         !taup = 3
         !taus = 4
 
-        alpha_rgm = 1.0  *      mod(loop,2)
+        alpha_rgm = 0.0  *      mod(loop,2)
         alpha_rgt = 1.0  * (1 - mod(loop,2))
-        beta_mldm = 1.0  *      mod(loop,2)
+        beta_mldm = 0.0  *      mod(loop,2)
         beta_mldt = 1.0  * (1 - mod(loop,2))
 
-#include "cparam.h"  ! <== This file overrides above parameter setup
+                  ! coupling parameters
+                  ! alpha -> RG gets MYM
+                  ! beta  -> MYM transport by RG
+                  ! m=momentum, t=tracer
+                  ! utilized in couple.F
+                  ! Default is all 1.0 with
+                  ! mod(loop,2) and (1-mod(loop,2))
+                  ! as alternate for m and t.
+                  !CAUTION  ! If beta_mldm, beta_mldt =0.0 then tracer
+                            ! in RG will not advect within MYM domain
 
-            kmax  = kmaxMYM
+
+        diffuse_MY = 1.0e3        ! Diffusion for MYM transport
+
+
+
+        kmax  = kmaxMYM
 
         do i=isc,iec
         do j=jsc,jec
@@ -145,7 +164,7 @@
         do kk = 1+hstart/5, hend/5
         if (kk .gt. kmax-1) goto 101
         
-        do nt = 1,nn+2
+        do nt = 1,nn+2+ntracers
 
         im = i-1
         ip = i+1
@@ -175,9 +194,9 @@
 
         enddo
 
-        call tsuv_diffuse (i,j,kk,diffuse_temp,diffuse_salt)
 
-#include "cparam.h"
+        call tsuv_diffuse (i,j,kk,diffuse_temp,diffuse_salt)
+        call tsuv_diffuse_tracer(i,j,kk,diffuse_tracers)
 
          temp(i,j,kk,2) = temp(i,j,kk,2) 
      &   - (tracedubdxmld(kk,1)
@@ -199,6 +218,13 @@
      &   - (tracedubdxmld(kk,4)
      &   + tracedvbdymld(kk,4)) *dt* beta_mldm  * rkmh(i,j)
 
+        do ntr = 1, ntracers
+            tr(i,j,kk,2,ntr) = tr(i,j,kk,2,ntr) 
+     &      - (tracedubdxmld(kk,4+ntr)
+     &      + tracedvbdymld(kk,4+ntr)) *dt* beta_mldt * rkmh(i,j)
+     &      + diffuse_tracers(ntr) * diffuse_MY * dt * rkmh(i,j)
+     &      -  (tr(i,j,kk,2,ntr) -  tr_read(i,j,kk,month,ntr)) * dt * sec2day * 0.0
+        end do
 
         enddo
 
@@ -210,6 +236,8 @@
 
         temp(isc:iec,jsc:jec,1:kmaxMYM,1) = temp(isc:iec,jsc:jec,1:kmaxMYM,2)
         salt(isc:iec,jsc:jec,1:kmaxMYM,1) = salt(isc:iec,jsc:jec,1:kmaxMYM,2)
+        tr(isc:iec,jsc:jec,1:kmaxMYM,1,1:ntracers) = 
+     &                             tr(isc:iec,jsc:jec,1:kmaxMYM,2,1:ntracers)
         uvel(isc:iec,jsc:jec,1:kmaxMYM,1) = uvel(isc:iec,jsc:jec,1:kmaxMYM,2)
         vvel(isc:iec,jsc:jec,1:kmaxMYM,1) = vvel(isc:iec,jsc:jec,1:kmaxMYM,2)
 
@@ -225,22 +253,36 @@
         integer, intent (in) :: index, i1,j1, i2,j2,kk,nt
 
         real :: rtemp1, rtemp2
+        integer, parameter :: ntn=4
 
         if (index .eq. 1) then
 
-         if (nt .eq. 1) rtemp1 = temp(i1,j1,kk,1)
-         if (nt .eq. 1) rtemp2 = temp(i2,j2,kk,1)
+         if (nt .eq. 1) then
+            rtemp1 = temp(i1,j1,kk,1)
+            rtemp2 = temp(i2,j2,kk,1)
+         end if
 
-         if (nt .eq. 2) rtemp1 = salt(i1,j1,kk,1)
-         if (nt .eq. 2) rtemp2 = salt(i2,j2,kk,1)
+         if (nt .eq. 2) then
+            rtemp1 = salt(i1,j1,kk,1)
+            rtemp2 = salt(i2,j2,kk,1)
+         end if
 
-         if (nt .eq. 3) rtemp1 = uvel(i1,j1,kk,1)
-         if (nt .eq. 3) rtemp2 = uvel(i2,j2,kk,1)
+         if (nt .eq. 3) then
+            rtemp1 = uvel(i1,j1,kk,1)
+            rtemp2 = uvel(i2,j2,kk,1)
+         end if
 
-         if (nt .eq. 4) rtemp1 = vvel(i1,j1,kk,1)
-         if (nt .eq. 4) rtemp2 = vvel(i2,j2,kk,1)
+         if (nt .eq. 4) then
+            rtemp1 = vvel(i1,j1,kk,1)
+            rtemp2 = vvel(i2,j2,kk,1)
+         end if
 
-        sum_2ptr_mld = (rtemp1 + rtemp2)
+         if (nt .gt. 4) then
+            rtemp1 = tr(i1,j1,kk,1,nt-ntn)
+            rtemp2 = tr(i2,j2,kk,1,nt-ntn)
+         end if
+
+         sum_2ptr_mld = (rtemp1 + rtemp2)
 
         endif
 
@@ -258,6 +300,10 @@
         endif
         if (index .eq. 11 .and. nt .eq. 4) then
         sum_2ptr_mld = (rkmv(i1,j1) + rkmv(i2,j2))
+        sum_2ptr_mld = max(1.0,sum_2ptr_mld)
+        endif
+        if (index .eq. 11 .and. nt .gt. 4) then
+        sum_2ptr_mld = (rkmh(i1,j1) + rkmh(i2,j2))
         sum_2ptr_mld = max(1.0,sum_2ptr_mld)
         endif
 
@@ -295,7 +341,7 @@
         implicit none
 
         integer :: ii, jj, kk
-        real :: diffuse_temp, diffuse_salt, diiffuse_temp, diiffuse_salt
+        real :: diffuse_temp, diffuse_salt
 
         integer :: iip, iim, jjp, jjm
         real :: rtemp1, rtemp2, rtemp3, rtemp4, rtemp5, rtemp6
@@ -309,7 +355,7 @@
      &    (temp(iip,jj,kk,1) - temp(ii,jj,kk,1) )*rdxu(iip,jj)
         rtemp2 = rkmh(iim,jj)*
      &    (temp(ii,jj,kk,1) - temp(iim,jj,kk,1) )*rdxu(ii,jj)
-        rtemp3 = (rtemp1 - rtemp1)*rdxh(ii,jj)
+        rtemp3 = (rtemp1 - rtemp2)*rdxh(ii,jj)  !--> Prajeesh
 
         rtemp4 = rkmh(ii,jjp)* (temp(ii,jjp,kk,1) - temp(ii,jj,kk,1))*rdyv(ii,jjp)
         rtemp5 = rkmh(ii,jjm)* (temp(ii,jj,kk,1) - temp(ii,jjm,kk,1))*rdyv(ii,jj)
@@ -324,7 +370,7 @@
      &    (salt(iip,jj,kk,1) - salt(ii,jj,kk,1) )*rdxu(iip,jj)
         rtemp2 = rkmh(iim,jj)*
      &    (salt(ii,jj,kk,1) - salt(iim,jj,kk,1) )*rdxu(ii,jj)
-        rtemp3 = (rtemp1 - rtemp1)*rdxh(ii,jj)
+        rtemp3 = (rtemp1 - rtemp2)*rdxh(ii,jj) !--->Prajeesh
 
         rtemp4 = rkmh(ii,jjp)*
      &   (salt(ii,jjp,kk,1) - salt(ii,jj,kk,1))*rdyv(ii,jjp)
@@ -337,5 +383,41 @@
 
         return
         end subroutine tsuv_diffuse
+
+        subroutine tsuv_diffuse_tracer (ii,jj,kk,diffuse_tracers)
+        implicit none
+
+        integer, intent(in) :: ii, jj, kk
+        real, intent(out) :: diffuse_tracers(:)
+
+        integer :: iip, iim, jjp, jjm, ntr
+        real :: rtemp1, rtemp2, rtemp3, rtemp4, rtemp5, rtemp6
+
+        iip = ii+1
+        iim = ii-1
+        jjp = jj+1
+        jjm = jj-1
+
+        diffuse_tracers(:) = 0.
+
+        do ntr = 1, ntracers 
+            rtemp1 = rkmh(iip,jj)*
+     &        (tr(iip,jj,kk,1,ntr) - tr(ii,jj,kk,1,ntr) )*rdxu(iip,jj)
+            rtemp2 = rkmh(iim,jj)*
+     &        (tr(ii,jj,kk,1,ntr) - tr(iim,jj,kk,1,ntr) )*rdxu(ii,jj)
+            rtemp3 = (rtemp1 - rtemp2)*rdxh(ii,jj) !--->Prajeesh
+
+            rtemp4 = rkmh(ii,jjp)*
+     &       (tr(ii,jjp,kk,1,ntr) - tr(ii,jj,kk,1,ntr))*rdyv(ii,jjp)
+            rtemp5 = rkmh(ii,jjm)*
+     &       (tr(ii,jj,kk,1,ntr) - tr(ii,jjm,kk,1,ntr))*rdyv(ii,jj)
+            rtemp6 = (rtemp4 - rtemp5)*rdyh(ii,jj)
+
+            diffuse_tracers(ntr) = rtemp3 + rtemp6
+            if (rtemp3 .eq. 0.0 .or. rtemp6 .eq. 0.0) diffuse_tracers(ntr) = 0.0 !Prajeesh 
+        end do
+
+        return
+        end subroutine tsuv_diffuse_tracer
 
         end module couple_mod

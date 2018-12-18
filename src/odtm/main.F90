@@ -16,7 +16,7 @@ program main
     use size_mod, only : lpm, month, month_start, month_wind
     use size_mod, only : taum, taun, taup, taus, time_switch, tracer_switch 
     use size_mod, only : iday_wind, rkmh, rkmu, rkmv, rkmt, kclim
-    use size_mod, only : imt, jmt, km, gdx, gdy, kmaxMYM, dz, nn, lm, gdxb, gdyb
+    use size_mod, only : imt, jmt, km, gdx, gdy, dz, nn, lm, gdxb, gdyb
     use size_mod, only : t, eta, u, v, temp, h, we, pvort, salt, dxu, dyv, omask
     use size_mod, only : uvel, vvel, smcoeff, SHCoeff, diag_ext1, diag_ext2
     use size_mod, only : diag_ext3, diag_ext4, diag_ext5, diag_ext6
@@ -25,8 +25,12 @@ program main
     use size_mod, only : rdx, rdy, rkmt, we_upwel, wd, pme_corr
     use size_mod, only : temp_read, salt_read, mask
 
-    use param_mod, only : day2sec, dpm, dt, dyd, loop_day, loop_total
-    use param_mod, only : nmid, rnmid, sum_adv, deg2rad
+    use param_mod, only : day2sec, dpm, dt, dyd, loop_total
+    use param_mod, only : nmid, sum_adv, deg2rad
+
+    use moto_mod, only : kmaxMYM=>kmax 
+    use nemuro_mod, only : initialize_nemuro, diag_out_nemuro, save_restart_nemuro, &
+                           ntracers, tr
     
     use momentum_mod, only : momentum
     use tracer_mod, only : tracer, rgm_zero_tracer_adv
@@ -55,8 +59,8 @@ program main
     use time_manager_mod, only : operator(-), get_date
     implicit none
 
-    integer :: iday_month, ii
-    real :: age_time, day_night, rlct, depth_mld
+    integer :: ii
+    real :: day_night, rlct
     type(time_type) :: time, time_step, time_restart, end_time
 
     integer :: domain_layout(2), used, yy, dd, hr, mn, sc
@@ -81,7 +85,7 @@ program main
     logical :: override
     character (len=32) :: timestamp
     integer :: restart_interval(6) = 0, layout(2)
-    integer :: start_date(6) = 0, end_date(6) = 0
+    integer :: start_date(6) = 0, end_date(6) = 0, ntr
     
     namelist /main_nml/ restart_interval, layout, start_date, &
                         rgm_zero_tracer_adv, end_date
@@ -183,6 +187,9 @@ program main
         call mpp_update_domains(salt(:,:,:,1),domain)
         call mpp_update_domains(uvel(:,:,:,1),domain)
         call mpp_update_domains(vvel(:,:,:,1),domain)
+        do ntr = 1, ntracers
+            call mpp_update_domains(tr(:,:,:,1,ntr),domain)
+        end do
 
         call mpp_clock_begin(clinic_clk)
 
@@ -240,7 +247,7 @@ program main
         call mpp_clock_begin(filter_clk) 
         call filter(domain)
         call mpp_clock_end(filter_clk) 
-    
+   
         if (isc<=imt/2.and.iec>=imt/2.and.jsc<=jmt/2.and.jec>=jmt/2) then
             write(*,*) temp(imt/2, jmt/2 , 1, 1), h(imt/2, jmt/2 , 1, taun), &
                             loop, SHCoeff(imt/2, jmt/2 , 5)
@@ -248,6 +255,7 @@ program main
 
         call print_date(time)
         call send_data_diag(time)
+        call diag_out_nemuro(time)
 
         time = time + time_step
     
@@ -259,6 +267,7 @@ program main
                 restart_interval(3), restart_interval(4), restart_interval(5), restart_interval(6) )
 
            call save_restart(restart_odtm,timestamp) 
+           call save_restart_nemuro(timestamp) 
 
         endif
 
@@ -272,6 +281,7 @@ program main
 
         if ( umax > 10. .or. sumall/=sumall ) then
             call save_restart(restart_odtm, 'crash')
+            call save_restart_nemuro('crash')
             call diag_manager_end(time)
             print *, 'blow-up :', umax, sumall
             call mpp_error(WARNING, 'stop=>blow-up')
@@ -286,6 +296,7 @@ program main
     call mpp_error(NOTE,'Integration finished')
 
     call save_restart(restart_odtm) 
+    call save_restart_nemuro() 
     
     call diag_manager_end(time)
     call fms_end()
@@ -337,7 +348,6 @@ program main
 
         call data_override_init(Ocean_domain_in=domain)
 
-    
         allocate ( lmask(isc:iec,jsc:jec) ) 
         allocate ( lmask3(isc:iec,jsc:jec,km) )
         allocate ( lmask3m(isc:iec,jsc:jec,kmaxMYM) )
@@ -378,6 +388,8 @@ program main
         id_depth = diag_axis_init('depth', rdepth, 'meters', &
             cart_name='Z', long_name='depth')
 
+        call initialize_nemuro(Time, domain, kmaxMYM, id_lon, id_lat, id_depth_mld)
+    
         id_airt = register_diag_field('odtm', 'airt', (/id_lon,id_lat/), init_time=Time, &
                  long_name='Air Temperature', units='deg-C',missing_value=FILL_VALUE)
 

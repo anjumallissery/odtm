@@ -1,12 +1,13 @@
 
 module size_mod
-    
+
+    use moto_mod, only : kmaxMYM => kmax    
   !	grid specification for the model
 
   implicit none
 
   integer, parameter :: nLayer=12, km=nLayer, lm=13
-  integer, parameter :: NPP=225, nn=2, kmaxMYM=51, kclim=201
+  integer, parameter :: NPP=225, nn=2, kclim=201
   integer, parameter :: taum = 1, taun = 2, taup = 3, taus = 4
   
   integer :: imt, jmt, halo=1
@@ -60,7 +61,6 @@ module size_mod
   real, pointer, dimension(:) :: gdxb => null(), gdyb => null()
   real, pointer, dimension(:) :: rdx => null(), rdy => null()
 
-  real, pointer, dimension(:,:) :: tracedubdxmld => null(), tracedvbdymld => null()
   real, pointer, dimension(:,:) :: dxu => null(), dyu => null()
   real, pointer, dimension(:,:) :: dxv => null(), dyv => null()
   real, pointer, dimension(:,:) :: dxh => null(), dyh => null()
@@ -155,7 +155,6 @@ module size_mod
 
         ! only on vertical
         allocate ( we_prof(0:kmaxMYM+1) )
-        allocate ( tracedubdxmld(kmaxMYM,4), tracedvbdymld(kmaxMYM,4) )
         allocate ( pres_gradu(km), pres_gradv(km) )
         allocate ( he(km), hd(km) )
         allocate ( dz(km), dz_max(km), dz_min(km), zdz(km) )
