@@ -29,8 +29,8 @@ program main
     use param_mod, only : nmid, sum_adv, deg2rad
 
     use moto_mod, only : kmaxMYM=>kmax 
-    use nemuro_mod, only : initialize_nemuro, diag_out_nemuro, save_restart_nemuro, &
-                           ntracers, tr
+    use nemuro_mod, only : initialize_nemuro, diag_out_nemuro, &
+                    save_restart_nemuro, ntracers, tr, nemuro_driver
     
     use momentum_mod, only : momentum
     use tracer_mod, only : tracer, rgm_zero_tracer_adv
@@ -73,7 +73,7 @@ program main
     integer :: id_mld, id_tke, id_rif, id_mlen, id_st_h, id_st_m, id_pme
     integer :: id_sphm, id_uwnd, id_vwnd, id_ssw, id_cld, id_chl, id_rvr
 
-    integer :: init_clk, main_clk, clinic_clk, mld_clk, filter_clk, couple_clk
+    integer :: init_clk, main_clk, clinic_clk, mld_clk, filter_clk, couple_clk, nemuro_clk
 
     type(domain2d) :: domain
 
@@ -86,6 +86,7 @@ program main
     character (len=32) :: timestamp
     integer :: restart_interval(6) = 0, layout(2)
     integer :: start_date(6) = 0, end_date(6) = 0, ntr
+    real :: dz_MYM(kmaxMYM)=[(real(ii)*5.0,ii=1,kmaxMYM)]
     
     namelist /main_nml/ restart_interval, layout, start_date, &
                         rgm_zero_tracer_adv, end_date
@@ -97,6 +98,7 @@ program main
     main_clk = mpp_clock_id('Main Loop')
     clinic_clk = mpp_clock_id('Clinic')
     mld_clk = mpp_clock_id('MLD')
+    nemuro_clk = mpp_clock_id('NEMURO')
     filter_clk = mpp_clock_id('Filter')
     couple_clk = mpp_clock_id('Couple')
 
@@ -237,6 +239,10 @@ program main
         call mpp_update_domains(uvel(:,:,:,2),domain)
         call mpp_update_domains(vvel(:,:,:,2),domain)
         call mpp_clock_end(mld_clk)
+
+        call mpp_clock_begin(nemuro_clk)
+        call nemuro_driver(Time, temp(:,:,:,2), salt(:,:,:,2), ssw, dt, dz_MYM)
+        call mpp_clock_end(nemuro_clk)
 
         call balance_pme()
 
