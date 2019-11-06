@@ -3,7 +3,7 @@
         contains
          
         subroutine interp_extrap (ii,jj,kk,kmax,tau_index,
-     &  tempout,saltout,uvelout,vvelout)
+     &  sswin,tempout,saltout,uvelout,vvelout, sswlout)
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 c
 c
@@ -13,19 +13,21 @@ c
 c
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
             use size_mod, only : eta, h, loop, salt, t, temp, u, uvel, v
-            use size_mod, only : vvel, we_baro, we_mld, we_prof, taun, km
+            use size_mod, only : vvel, we_baro, we_mld, we_prof, taun, km, ssw, chl
             use param_mod, only : day2sec, diffuse_my, diffuse_tr, dt
         implicit none
         integer, intent(in) :: ii, jj, kk, kmax, tau_index 
 
         real, intent(out) :: tempout, saltout
-        real, intent(out) ::  uvelout, vvelout
-        real :: rsum1, rsum2, rsum3, rsum4
+        real, intent(out) ::  uvelout, vvelout, sswlout
+        real :: rsum1, rsum2, rsum3, rsum4, rsum5
         integer :: hstart, hend
         
         real :: alpha_rgm, alpha_rgt, beta_mldm, beta_mldt
         integer :: icount, irepeat, kkk
-        real :: rdiv, rdrag, relax_East, relax_South, relax_on_off, rsum, widE, widS
+        real :: rdiv, rdrag, relax_East, relax_South, relax_on_off, rsum
+        real :: widE, widS, rwall, sswin(kmax)
+
 
         hstart = 0
         do irepeat = 1,kk-1
@@ -37,12 +39,14 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
         rsum2 = 0.0
         rsum3 = 0.0
         rsum4 = 0.0
+        rsum5 = 0.0
         icount = 0
         
         tempout = 0.0
         saltout = 0.0
         uvelout = 0.0
         vvelout = 0.0
+        sswlout = 0.0
 
         do kkk = 1+hstart/5, hend/5
         icount = icount + 1
@@ -52,12 +56,14 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
         rsum2 = rsum2 + salt(ii,jj,kkk,tau_index)
         rsum3 = rsum3 + uvel(ii,jj,kkk,tau_index)
         rsum4 = rsum4 + vvel(ii,jj,kkk,tau_index)
+        rsum5 = rsum5 + (sswin(kkk)-sswin(kkk+1))
         enddo
 
         tempout = rsum1/max(1,icount)
         saltout = rsum2/max(1,icount)
         uvelout = rsum3/max(1,icount)
         vvelout = rsum4/max(1,icount)
+        sswlout = rsum5 !/max(1,icount)
 
  101    continue
 
@@ -101,12 +107,12 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
         subroutine interp_extrap_we_profile (ii, jj, kmax)
 
         use size_mod, only : eta, h, loop, we_baro, we_mld, we_prof, taum, taun, km
-            use param_mod, only : day2sec, diffuse_my, diffuse_tr, dt
+        use param_mod, only : day2sec, diffuse_MY, diffuse_tr, dt
         implicit none
         integer hstart, hend, ii, jj, kk, kmax
         real :: gama, alpha_rgm, alpha_rgt, beta_mldm, beta_mldt
         integer :: icount, irepeat, kkk
-        real :: rdiv, rdrag, relax_East, relax_South, relax_on_off, rsum, widE, widS
+        real :: rdiv, rdrag, relax_East, relax_South, relax_on_off, rsum, widE, widS, rwall
 
         gama = 1.0
 

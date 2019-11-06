@@ -25,8 +25,8 @@ program main
     use size_mod, only : rdx, rdy, rkmt, we_upwel, wd, pme_corr
     use size_mod, only : temp_read, salt_read, mask
 
-    use param_mod, only : day2sec, dpm, dt, dyd, loop_total
-    use param_mod, only : nmid, sum_adv, deg2rad
+    use param_mod, only : day2sec, dpm, dt, dyd, loop_day, loop_total
+    use param_mod, only : nmid, rnmid, sum_adv, deg2rad
 
     use moto_mod, only : kmaxMYM=>kmax 
     use nemuro_mod, only : initialize_nemuro, diag_out_nemuro, &
@@ -54,16 +54,16 @@ program main
     use diag_data_mod, only : FILL_VALUE
     use data_override_mod, only : data_override_init, data_override
     use time_manager_mod, only : set_calendar_type, NO_CALENDAR, JULIAN, NOLEAP, date_to_string
-    use time_manager_mod, only : time_type, set_time, set_date, operator(+), assignment(=), operator(/)
+    use time_manager_mod, only : time_type, set_time, set_date, operator(+), assignment(=)
     use time_manager_mod, only : print_date, print_time, set_ticks_per_second, increment_date, operator(>=)
-    use time_manager_mod, only : operator(-), get_date
+
     implicit none
 
-    integer :: ii
-    real :: day_night, rlct
-    type(time_type) :: time, time_step, time_restart, end_time
+    integer :: iday_month, ii
+    real :: age_time, day_night, rlct, depth_mld
+    type(time_type) :: time, time_step, time_restart
 
-    integer :: domain_layout(2), used, yy, dd, hr, mn, sc
+    integer :: domain_layout(2), used
 
     integer :: id_lon, id_lat, id_sst, id_depth_mld, id_depth, id_sss, id_airt
     integer :: id_lonb, id_latb
@@ -85,11 +85,11 @@ program main
     logical :: override
     character (len=32) :: timestamp
     integer :: restart_interval(6) = 0, layout(2)
-    integer :: start_date(6) = 0, end_date(6) = 0, ntr
+    integer :: start_date(6) = 0, ntr
     real :: dz_MYM(kmaxMYM)=[(real(ii)*5.0,ii=1,kmaxMYM)]
     
-    namelist /main_nml/ restart_interval, layout, start_date, &
-                        rgm_zero_tracer_adv, end_date
+    namelist /main_nml/ restart_interval, layout, days, start_date, &
+                        rgm_zero_tracer_adv
 
     call mpp_init()
     call fms_init()
@@ -108,8 +108,19 @@ program main
     call init_odtm()
     call mpp_clock_end(init_clk)
 
+
     !c       do the integration
 
+    month_start = 1
+    loop_start = 1
+    month = month_start
+    lpm = dpm(month)*day2sec/dt
+    lpd = day2sec/dt
+    month_wind = month_start
+    iday_month = month_start
+    iday_wind = 1
+    iday_start = iday_month !c-1
+    
     if (mpp_root_pe()) call check
     
 #ifdef trace
@@ -118,12 +129,31 @@ program main
     tracer_switch = 0
 #endif
 
+    loop_total = int(days*day2sec/dt)
+    
     call mpp_clock_begin(main_clk)
+ 
+    do loop = loop_start, loop_total
 
-    do loop = 1, loop_total
+        loop_day = loop*dt/day2sec
 
-        call get_date(time, yy,month,dd,hr,mn,sc)
+#ifdef monthly_wind
 
+        if ( loop .gt. lpm) then 
+            month = month + 1
+            month_wind = month_wind + 1
+            lpm = lpm + dpm(month)*day2sec/dt
+
+#ifdef monthly_climatology
+            if ( month .eq. 13) then 
+                month = 1
+                month_wind = 1
+            endif
+#endif
+            if ( month .eq. 13) month = 1
+        endif
+#endif
+    
         sum_adv=0.0
     
         call data_override('OCN','sphm',sphm,time,override)
@@ -172,39 +202,39 @@ program main
 
         call mpp_update_domains(u(:,:,:,taun),domain)
         call mpp_update_domains(u(:,:,:,taum),domain)
-
         call mpp_update_domains(v(:,:,:,taun),domain)
         call mpp_update_domains(v(:,:,:,taum),domain)
-
         call mpp_update_domains(h(:,:,:,taun),domain)
         call mpp_update_domains(h(:,:,:,taum),domain)
-
         call mpp_update_domains(t(:,:,:,1,taun),domain)
-        call mpp_update_domains(t(:,:,:,1,taum),domain)
-
         call mpp_update_domains(t(:,:,:,2,taun),domain)
+        call mpp_update_domains(t(:,:,:,1,taum),domain)
         call mpp_update_domains(t(:,:,:,2,taum),domain)
 
         call mpp_update_domains(temp(:,:,:,1),domain)
+        call mpp_update_domains(temp(:,:,:,2),domain)
         call mpp_update_domains(salt(:,:,:,1),domain)
+        call mpp_update_domains(salt(:,:,:,2),domain)
         call mpp_update_domains(uvel(:,:,:,1),domain)
+        call mpp_update_domains(uvel(:,:,:,2),domain)
         call mpp_update_domains(vvel(:,:,:,1),domain)
+        call mpp_update_domains(vvel(:,:,:,2),domain)
         do ntr = 1, ntracers
             call mpp_update_domains(tr(:,:,:,1,ntr),domain)
         end do
 
         call mpp_clock_begin(clinic_clk)
 
-        do i=isc,iec
-            do j=jsc,jec
-                do k=1,km-1
-                    if (rkmh(i,j) .ne. 0.0) then
-                        nmid = (jmt/2)+1
-                        call clinic
-                    endif
-                enddo
-            enddo
-        enddo
+!        do i=isc,iec
+!            do j=jsc,jec
+!                do k=1,km-1
+!                    if (rkmh(i,j) .ne. 0.0) then
+!                        nmid = (jmt/2)+1
+                        call clinic(domain)
+!                    endif
+!                enddo
+!            enddo
+!        enddo
 
         call mpp_update_domains(h(:,:,:,taup),domain)
     
@@ -253,11 +283,11 @@ program main
         call mpp_clock_begin(filter_clk) 
         call filter(domain)
         call mpp_clock_end(filter_clk) 
-   
-        if (isc<=imt/2.and.iec>=imt/2.and.jsc<=jmt/2.and.jec>=jmt/2) then
-            write(*,*) temp(imt/2, jmt/2 , 1, 1), h(imt/2, jmt/2 , 1, taun), &
-                            loop, SHCoeff(imt/2, jmt/2 , 5)
-        endif
+    
+!        if (isc<=imt/2.and.iec>=imt/2.and.jsc<=jmt/2.and.jec>=jmt/2) then
+!            write(*,*) temp(imt/2, jmt/2 , 1, 1), h(imt/2, jmt/2 , 1, taun), &
+!                            loop, SHCoeff(imt/2, jmt/2 , 5)
+!        endif
 
         call print_date(time)
         call send_data_diag(time)
@@ -330,23 +360,11 @@ program main
 
         time = set_date(start_date(1), start_date(2), start_date(3), &
                         start_date(4), start_date(5), start_date(6))
-     
-        if (sum(end_date)<=0) &
-          call mpp_error(FATAL, 'end_date not given or not proper in input.nml')
-        end_time = set_date(end_date(1), end_date(2), end_date(3), &
-                        end_date(4), end_date(5), end_date(6))
-
-        if (all(restart_interval==0)) then
-            time_restart = increment_date(end_time, 0,0,1,0,0,0)
-            
-        else 
-            time_restart = increment_date(time, restart_interval(1), restart_interval(2), &
-                restart_interval(3), restart_interval(4), restart_interval(5), restart_interval(6))
-        endif
-
-        loop_total = (end_time - time)/time_step
-
-        month = start_date(2)
+      
+        if (all(restart_interval==0)) restart_interval(1) = 10
+ 
+        time_restart = increment_date(time, restart_interval(1), restart_interval(2), &
+        restart_interval(3), restart_interval(4), restart_interval(5), restart_interval(6) )
 
         call init_grid()
 
@@ -354,6 +372,7 @@ program main
 
         call data_override_init(Ocean_domain_in=domain)
 
+    
         allocate ( lmask(isc:iec,jsc:jec) ) 
         allocate ( lmask3(isc:iec,jsc:jec,km) )
         allocate ( lmask3m(isc:iec,jsc:jec,kmaxMYM) )
@@ -453,7 +472,7 @@ program main
         id_ty = register_diag_field('odtm', 'ty', (/id_lon,id_lat/), init_time=Time, &
                  long_name='tauy', units='?',missing_value=FILL_VALUE)
 
-        id_we = register_diag_field('odtm', 'we', (/id_lon,id_lat,id_depth/), init_time=Time, &
+        id_we = register_diag_field('odtm', 'wd', (/id_lon,id_lat,id_depth/), init_time=Time, &
                  long_name='?', units='?',missing_value=FILL_VALUE)
        
         id_dens = register_diag_field('odtm', 'dens', (/id_lon,id_lat,id_depth/), init_time=Time, &
@@ -554,7 +573,7 @@ program main
 
         used = send_data(id_v, v(isc:iec,jsc:jec,:,taun), time, mask=lmask3)
 
-        used = send_data(id_we, we, time, mask=lmask3)
+        used = send_data(id_we, wd(isc:iec,jsc:jec,:), time, mask=lmask3)
 
         used = send_data(id_dens, denss, time, mask=lmask3)
 
@@ -597,7 +616,7 @@ program main
         integer :: ii, jj, kk, kmax, l, ll, nt
         integer :: dimz(4)
         real, allocatable :: tmp2(:,:)
-        integer :: id_restart
+        integer :: id_restart, kstart, kend
         real :: tempin(kclim), saltin(kclim)
         real :: saltout, tempout
         character (len=32) :: grid_file='INPUT/grid_spec.nc'
@@ -666,6 +685,8 @@ program main
         gdyb = 0.
         gdyb(1:jmt+1) = tmp2(1,1:jmt+1)
 
+        if (mpp_pe()==0) print *, 'gdyb=', gdyb
+
         do ii=1,imt
            rdx(ii) = (gdxb(ii+1) - gdxb(ii))*deg2rad
         enddo
@@ -727,11 +748,11 @@ program main
         id_restart = register_restart_field(restart_odtm, restart_file, 'pme_corr', pme_corr(:,:),domain=domain)
 
         we_upwel(:,:,:) = 0.0
-       
-        h(:,:,:,:) = 0.0 
+        
         do kk=1,km
             h(:,:,kk,taum)=dz(kk)
             h(:,:,kk,taun)=dz(kk)
+            h(:,:,kk,taup)=dz(kk)
         enddo
 
         u(:,:,:,:) = 0.0
@@ -785,16 +806,19 @@ program main
                     kmax = kclim
                     do k=1,km-1   
                         call interp_extrap_initial (i,j,k,kmax,tempin, &
-                            saltin,tempout,saltout)
+                            saltin,tempout,saltout,kstart,kend)
                         t(i,j,k,1,taun) = tempout
                         t(i,j,k,2,taun) = saltout
                         t(i,j,k,1,taum) = tempout
                         t(i,j,k,2,taum) = saltout
+!              temp(i,j,kstart:kend,1:2) = temp(i,j,kstart:kend,1:2) - tempout
+!              salt(i,j,kstart:kend,1:2) = salt(i,j,kstart:kend,1:2) - saltout
                     enddo
+                        
 
-                    t(i,j,km,1,taun) = 8.0
+                    t(i,j,km,1,taun) = 10.0
                     t(i,j,km,2,taun) = 35
-                    t(i,j,km,1,taum) = 8.0
+                    t(i,j,km,1,taum) = 10.0
                     t(i,j,km,2,taum) = 35.0
 
                 enddo

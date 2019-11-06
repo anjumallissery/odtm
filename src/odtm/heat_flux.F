@@ -77,7 +77,7 @@
 
 ! TX WIND STRESS
         tx= rho_a*cd*uwndin*abs(uwndin)
-        ty= rho_a*cd*vwndin*abs(vwndin)
+        ty= rho_a*cd*vwndin*abs(vwndin) 
 
 ! SENSIBLE HEAT FLUX +ve-> heat in ocean
         qs= rho_a*cp*cs*tau*del_t         

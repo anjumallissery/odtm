@@ -24,7 +24,7 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
         use size_mod, only : gdx, gdy, h, i, j, k, loop, month, rdx
         use size_mod, only : rdy, rkmh, salt_read, t, taum, taum1, taun, taun1
         use size_mod, only : taup1, temp_read, taup, kclim, theta, nn
-        use size_mod, only : rdxu, rdyv, rdxh, rdyh, kmaxMYM
+        use size_mod, only : rdxu, rdyv, rdxh, rdyh, kmaxMYM, we, wd
         use param_mod, only : day2sec, diffuse_h, diffuse_my, diffuse_tr, dphi
         use param_mod, only : dtts, dt, rad2deg
 
@@ -37,8 +37,8 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
         real :: tracedvbdy, tracedubdx, rtemp1, rtemp2, rtemp3, rtemp4, rtemp5, rtemp6
         real :: tempout, saltout, hstart, hend, zero_out_tradv
         real :: relax_on_off, alpha_rgm, alpha_rgt, beta_mldm, beta_mldt, gama, rdrag
-        real :: relax_South, widS, relax_East, widE
-        integer :: irepeat, kmax, kk
+        real :: relax_South, widS, relax_East, widE, rwall
+        integer :: irepeat, kmax, kk, kstart, kend
 
         do nt = 1,nn
 	taum1 = 1
@@ -75,16 +75,17 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 	rtemp2 = sum_2ptr (1,im,j,i,j,nt) /
      &                           sum_2ptr (11,im,j,i,j,nt)
 
-	tracedubdx = (rtemp1 - rtemp2)* (sum_2pt (1,ip,j,i,j)/
-     &                              sum_2pt (11,ip,j,i,j) ) * rdxh(i,j)
+         tracedubdx = (rtemp1 - rtemp2)* (sum_2pt (1,ip,j,i,j)/
+     &   sum_2pt (11,ip,j,i,j) ) * rdxh(i,j) 
 
 
 	rtemp3 = sum_2ptr (1,i,j,i,jp,nt) /
      &                            sum_2ptr (11,i,j,i,jp,nt)
 	rtemp4 = sum_2ptr (1,i,j,i,jm,nt) /
      &                           sum_2ptr (11,i,j,i,jm,nt)
-	tracedvbdy = ( rtemp3 - rtemp4 )* (sum_2pt (2,i,jp,i,j)/
-     &                              sum_2pt (21,i,jp,i,j) ) * rdyh(i,j) 
+         tracedvbdy = ( rtemp3 - rtemp4 )* (sum_2pt (2,i,jp,i,j)/
+     &          sum_2pt (21,i,jp,i,j) ) * rdyh(i,j)
+
 
         endif
 
@@ -111,12 +112,12 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
          enddo
 
         call interp_extrap_initial (i,j,k,kmax,tempin,
-     &   saltin,tempout,saltout)
+     &   saltin,tempout,saltout,kstart,kend)
 
         relax_tr(1) = (tempout - t(i,j,k,1,taun))/
-     &      (30.0*day2sec)
+     &      (10.0*day2sec)
         relax_tr(2) = (saltout - t(i,j,k,2,taun))/
-     &      (30.0*day2sec)
+     &      (10.0*day2sec)
 
         endif
 
@@ -129,15 +130,17 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 	     rtemp1 = rdx(i) * rad2deg
          rtemp2 = rdy(j) * rad2deg
 
-
-        t(i,j,k,nt,taup) = t(i,j,k,nt,taum)*rkmh(i,j) + (
+        
+        t(i,j,k,nt,taup) = t(i,j,k,nt,taum)*rkmh(i,j) + 
      &  -(
      &     tracedubdx * zero_out_tradv
      &     + tracedvbdy * zero_out_tradv
      &     - diffuse_h * diffuse_tr * max(rtemp1, rtemp2)
      &     - relax_tr(nt) * relax_on_off
+     &     + we(i,j,k) * (t(i,j,k,nt,taun) - t(i,j,k+1,nt,taun))/
+     &       max(1.0, (h(i,j,k,taun)) )
      &      )
-     &  ) *dtts*rkmh(i,j)
+     &   *dtts*rkmh(i,j)
 
 	enddo
         
@@ -147,7 +150,7 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
 
          function sum_2ptr (index, i1,j1, i2,j2,nt)
-            use size_mod, only : k, t, rkmh, taun
+            use size_mod, only : k, t, rkmh, taun, h
         implicit none
         real :: sum_2ptr
         integer, intent(in) :: index, i1,j1, i2,j2,nt
@@ -155,12 +158,18 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
         if (index .eq. 1) then
         sum_2ptr = (t(i1,j1,k,nt,taun) + t(i2,j2,k,nt,taun))
         endif
-
         if (index .eq. 11) then
         sum_2ptr = (rkmh(i1,j1) + rkmh(i2,j2))
         sum_2ptr = max(1.0,sum_2ptr)
         endif
 
+        if (index .eq. 3) then
+        sum_2ptr = (h(i1,j1,k,taun) + h(i2,j2,k,taun))
+        endif
+        if (index .eq. 31) then
+        sum_2ptr = (rkmh(i1,j1) + rkmh(i2,j2))
+        sum_2ptr = max(1.0,sum_2ptr)
+        endif
         end function sum_2ptr 
 
         end module tracer_mod

@@ -134,7 +134,7 @@ module size_mod
         allocate ( temp_read(isc:iec,jsc:jec,kclim,lm) )
         allocate ( salt_read(isc:iec,jsc:jec,kclim,lm) )
 
-        allocate ( we(isc:iec,jsc:jec,km), wd(isc:iec,jsc:jec,km), we_mld(isc:iec,jsc:jec,0:km) )
+        allocate ( we(isd:ied,jsd:jed,km), wd(isd:ied,jsd:jed,km), we_mld(isc:iec,jsc:jec,0:km) )
         allocate ( eta(isc:iec,jsc:jec,km,4), pvort(isc:iec,jsc:jec,km), rEnergy(isc:iec,jsc:jec,km) )
         allocate ( SMCoeff(isc:iec,jsc:jec,kmaxMYM), SHCoeff(isc:iec,jsc:jec,kmaxMYM) )
         allocate ( rmld_misc(isc:iec,jsc:jec,kmaxMYM), denss(isc:iec,jsc:jec,km) )
@@ -240,7 +240,7 @@ module size_mod
         rho_max(11) = 1028.583104
         rho_max(12) = 1028.607435
 
-	    rho_min(1) = 1017.487049
+	rho_min(1) = 1017.487049
         rho_min(2) = 1020.429045
         rho_min(3) = 1021.431419
         rho_min(4) = 1022.281136
@@ -253,7 +253,7 @@ module size_mod
         rho_min(11) = 1025.985107
         rho_min(12) = 1026.234502
 
-	    tr01_max(1) = 34.93
+	tr01_max(1) = 34.93
         tr01_max(2) = 30.30
         tr01_max(3) = 29.40
         tr01_max(4) = 27.90
@@ -279,7 +279,7 @@ module size_mod
         tr01_min(11) = 08.21
         tr01_min(12) = 02.71
 
-	    tr02_max(1) = 40.32
+	tr02_max(1) = 40.32
         tr02_max(2) = 40.27
         tr02_max(3) = 40.38
         tr02_max(4) = 40.41
@@ -308,7 +308,7 @@ module size_mod
 
 ! he is the threshold height of layer at and below which entrainment starts
 
-        he(1) =  35.0
+        he(1) =  20.0
         he(2) =  15.0
         he(3) =  15.0
         he(4) =  15.0
@@ -317,38 +317,38 @@ module size_mod
         he(7) =  15.0
         he(8) =  15.0
         he(9) =  15.0
-        he(10) =  35.0
+        he(10) =  30.0
         he(11) =  50.0
-        he(12) = 800.0
+        he(12) = 100.0
 
 ! hd is the ht of layer, h>=hd- detrainment present
-        hd(1) = 100.0! what is hd?
-        hd(2) = 50.0
-        hd(3) = 50.0
-        hd(4) = 50.0
-        hd(5) = 50.0
-        hd(6) = 50.0
-        hd(7) = 50.0
-        hd(8) = 50.0
-        hd(9) = 50.0
-        hd(10) = 100.0
-        hd(11) = 200.0
-        hd(12) = 1600.0
+        hd(1) = 200.0! what is hd?
+        hd(2) = 100.0
+        hd(3) = 100.0
+        hd(4) = 100.0
+        hd(5) = 100.0
+        hd(6) = 100.0
+        hd(7) = 100.0
+        hd(8) = 100.0
+        hd(9) = 100.0
+        hd(10) = 200.0
+        hd(11) = 400.0
+        hd(12) = 2400.0
 
-        dz_max(1) = 3*dz(1) ! what is dz_max?
-        dz_max(2) = 3*dz(2)
-        dz_max(3) = 3*dz(3)
-        dz_max(4) = 3*dz(4)
-        dz_max(5) = 3*dz(5)
-        dz_max(6) = 3*dz(6)
-        dz_max(7) = 3*dz(7)
-        dz_max(8) = 3*dz(8)
-        dz_max(9) = 3*dz(9)
-        dz_max(10) = 3*dz(10)
-        dz_max(11) = 3*dz(11)
-        dz_max(12) = 3*dz(12)
+        dz_max(1) = 7*dz(1) ! what is dz_max?
+        dz_max(2) = 7*dz(2)
+        dz_max(3) = 7*dz(3)
+        dz_max(4) = 7*dz(4)
+        dz_max(5) = 7*dz(5)
+        dz_max(6) = 7*dz(6)
+        dz_max(7) = 7*dz(7)
+        dz_max(8) = 7*dz(8)
+        dz_max(9) = 7*dz(9)
+        dz_max(10) = 7*dz(10)
+        dz_max(11) = 7*dz(11)
+        dz_max(12) = 7*dz(12)
 
-        dz_min(1) = 20 
+        dz_min(1) = 10 
         dz_min(2) = 10 
         dz_min(3) = 10
         dz_min(4) = 10
@@ -358,8 +358,8 @@ module size_mod
         dz_min(8) = 10
         dz_min(9) = 10
         dz_min(10) = 20
-        dz_min(11) = 20
-        dz_min(12) = 500
+        dz_min(11) = 30
+        dz_min(12) = 70
     end subroutine init_size
 
 end module size_mod

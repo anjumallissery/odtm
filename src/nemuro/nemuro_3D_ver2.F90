@@ -27,7 +27,7 @@ implicit none
 private
 
 integer, parameter :: ntracer_nm=15
-integer, public :: ntracers=ntracer_nm
+integer, public :: ntracers=0
 character(len=16), parameter :: trnms(ntracer_nm) =["PS","PL","ZS","ZL","ZP","NO3","NH4", &
                                 "POM","DOM","SIOH4","Opal","Ca","CaCO3","TCO2","TALK"]
 real, parameter :: tr_ini(ntracer_nm)= [0.1e-6,0.1e-6,0.1e-6,0.1e-6,0.1e-6,5.0e-6,0.5e-6, &
@@ -77,6 +77,7 @@ subroutine initialize_nemuro(Time,domain,levs_in,id_lon,id_lat,id_depth)
         return
     endif
 
+    ntracers = ntracer_nm
     call mpp_error(NOTE, "-------USING NEMURO!-------")
 
     allocate(tr(isd:ied,jsd:jed,levs,2,ntracers))

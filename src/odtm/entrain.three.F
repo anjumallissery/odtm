@@ -9,10 +9,10 @@ c
 c
 ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
             use size_mod, only : we, wd, h, hd, he, i, j, k, rkmh, taun
-            use size_mod, only : isc, iec, jsc, jec, km
-            use param_mod, only : td, te
+            use size_mod, only : isc, iec, jsc, jec, km, dz_min
+            use param_mod, only : td, te, day2sec
         implicit none
-        real :: rwesum
+        real :: rwesum, apower
 	rwesum = 0.0
 	we(:,:,:) = 0.0
 	wd(:,:,:) = 0.0
@@ -25,6 +25,7 @@ c
 	do j=jsc, jec
 	
 	if (he(k) .gt. h(i,j,k,taun) )  then
+         apower = dz_min(k)/max(1.0e-8,abs( he(k) - h(i,j,k,taun) ))
 	 we(i,j,k) =  rkmh(i,j) *( he(k) - h(i,j,k,taun) )**2
      &           /(he(k)*te)
 	 wd(i,j,k+1) =  -1.0*rkmh(i,j) *( he(k) - h(i,j,k,taun) )**2

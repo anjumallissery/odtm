@@ -4,7 +4,7 @@
         contains
  
         subroutine interp_extrap_initial (ii,jj,kk,kmax,tempin,saltin,
-     &  tempout,saltout)
+     &  tempout,saltout, kstart, kend)
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 c
 c
@@ -19,7 +19,7 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
         real :: tempin(kmax), saltin(kmax), tempout, saltout
         real :: rsum1, rsum2
         integer :: hstart, hend, ii, jj, kk, tau_index, kmax
-        integer :: irepeat, rsum3, rsum4, icount, kkk
+        integer :: irepeat, rsum3, rsum4, icount, kkk, kstart, kend
 
         hstart = 0
         do irepeat = 1,kk-1
@@ -35,6 +35,9 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
         tempout = 0.0
         saltout = 0.0
+
+        kstart = 1+hstart/5
+        kend   = hend/5
 
         do kkk = 1+hstart/5, hend/5
         icount = icount + 1

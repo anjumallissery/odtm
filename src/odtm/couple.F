@@ -22,9 +22,10 @@
         use size_mod, only : isc, iec, jsc, jec
         use size_mod, only : taum, taun, taup, taus
         use size_mod, only : loop, km, i, j, k, rkmh, t, u, rkmu, v
-        use size_mod, only : rkmv, h, nn, temp, rkmu, rkmv
-        use size_mod, only : salt, uvel, vvel, rdx, rdxh, rdyh
-        use size_mod, only : temp_read, salt_read, month, theta
+        use size_mod, only : rkmv, h, nn, temp, rkmu, rkmv, rmld_misc
+        use size_mod, only : salt, uvel, vvel, rdx, rdxh, rdy, rdyh
+        use size_mod, only : temp_read, salt_read, month, theta, pme_corr
+        use size_mod, only : ssw, chl
         use param_mod, only : day2sec, dt, sec2day
 
         implicit none
@@ -48,16 +49,27 @@
         real :: saltout_taumB, saltout_taupB
         real :: uvelout_taumB, uvelout_taupB
         real :: vvelout_taumB, vvelout_taupB
+        real :: sswlout1, sswlout2, sswlout
 
         real :: alpha_rgm, beta_mldm
         real :: alpha_rgt, beta_mldt
 
         real :: diffuse_temp, diffuse_salt, rtheta_vu, rtheta_vd
-        real :: diffuse_MY, diffuse_tracers(ntracers)
-        real :: rtemp1, rtemp2, rtemp3, rtemp4
+        real :: diffuse_tracers(ntracers)
+      	real :: relax_on_off, gama, diffuse_MY, diffuse_tr
+        real :: relax_south, widS, relax_East, widE, rdrag
+        real :: rtemp1, rtemp2, rtemp3, rtemp4, rwall, cp
         real :: tracedubdxmld(kmaxMYM,4+ntracers), tracedvbdymld(kmaxMYM,4+ntracers)
         integer :: hstart, hend, ii, jj, kk, tau_index
-        integer :: im, jm, irepeat, nt, ip, jp, kmax, ntr
+        integer :: im, jm, irepeat, nt, ip, jp, kmax, ntr, kkk
+        real :: flux_mask, rh_sum
+
+!===========================================
+        real :: rvisible_extinct, rchla, rPAR, rvisible
+        real :: albedo, sfx, rAlpha1, rAlpha2, rL1, rL2
+        real :: sswin(51)
+
+!===========================================
 
         tracedubdxmld(:,:) = 0.0
         tracedvbdymld(:,:) = 0.0
@@ -67,59 +79,60 @@
         !taup = 3
         !taus = 4
 
-        alpha_rgm = 0.0  *      mod(loop,2)
+        alpha_rgm = 1.0  *      mod(loop,2)
         alpha_rgt = 1.0  * (1 - mod(loop,2))
-        beta_mldm = 0.0  *      mod(loop,2)
+        beta_mldm = 1.0  *      mod(loop,2)
         beta_mldt = 1.0  * (1 - mod(loop,2))
 
-                  ! coupling parameters
-                  ! alpha -> RG gets MYM
-                  ! beta  -> MYM transport by RG
-                  ! m=momentum, t=tracer
-                  ! utilized in couple.F
-                  ! Default is all 1.0 with
-                  ! mod(loop,2) and (1-mod(loop,2))
-                  ! as alternate for m and t.
-                  !CAUTION  ! If beta_mldm, beta_mldt =0.0 then tracer
-                            ! in RG will not advect within MYM domain
+#include "cparam.h"  ! <== This file overrides above parameter setup
 
-
-        diffuse_MY = 1.0e3        ! Diffusion for MYM transport
-
-
-
-        kmax  = kmaxMYM
+            kmax  = kmaxMYM
 
         do i=isc,iec
         do j=jsc,jec
+!============================================
+        sswin(1)  = ssw(i,j)
+        albedo     = 0.3
+        sfx =  sswin(1)  *(1.0-albedo)     !rsum/ncount  !* (1-mod(loop,2))
+        do kkk = 2,kmax
+        rAlpha1    =       0.805
+        rAlpha2    =       0.195
+        rL1        = 0.043
+        rL2        = 0.42
+        rchla      = max(0.02,chl(i,j)) !0.02  ! mg/m3
+        rPAR = 0.45
+        rvisible  = sfx * (1-rPAR) * rvisible_extinct (rchla, kkk-1)
+        sswin(kkk) = rvisible
+        enddo
+!============================================
         do k=1,km-1
 
         im = i-1
         jm = j-1
 
         tau_index = 1  
-        call interp_extrap (i,j,k,kmax,tau_index,
-     &  tempout_taumC,saltout_taumC,uvelout_taumC,vvelout_taumC)
+        call interp_extrap (i,j,k,kmax,tau_index,sswin,
+     &  tempout_taumC,saltout_taumC,uvelout_taumC,vvelout_taumC,sswlout)
 
         tau_index = 2
-        call interp_extrap (i,j,k,kmax,tau_index,
-     &  tempout_taupC,saltout_taupC,uvelout_taupC,vvelout_taupC)
+        call interp_extrap (i,j,k,kmax,tau_index,sswin,
+     &  tempout_taupC,saltout_taupC,uvelout_taupC,vvelout_taupC,sswlout)
         
         tau_index = 1  
-        call interp_extrap (im,j,k,kmax,tau_index,
-     &  tempout_taumL,saltout_taumL,uvelout_taumL,vvelout_taumL)
+        call interp_extrap (im,j,k,kmax,tau_index,sswin,
+     &  tempout_taumL,saltout_taumL,uvelout_taumL,vvelout_taumL,sswlout)
 
         tau_index = 2
-        call interp_extrap (im,j,k,kmax,tau_index,
-     &  tempout_taupL,saltout_taupL,uvelout_taupL,vvelout_taupL)
+        call interp_extrap (im,j,k,kmax,tau_index,sswin,
+     &  tempout_taupL,saltout_taupL,uvelout_taupL,vvelout_taupL,sswlout)
         
         tau_index = 1  
-        call interp_extrap (i,jm,k,kmax,tau_index,
-     &  tempout_taumB,saltout_taumB,uvelout_taumB,vvelout_taumB)
+        call interp_extrap (i,jm,k,kmax,tau_index,sswin,
+     &  tempout_taumB,saltout_taumB,uvelout_taumB,vvelout_taumB,sswlout)
 
         tau_index = 2
-        call interp_extrap (i,jm,k,kmax,tau_index,
-     &  tempout_taupB,saltout_taupB,uvelout_taupB,vvelout_taupB)
+        call interp_extrap (i,jm,k,kmax,tau_index,sswin,
+     &  tempout_taupB,saltout_taupB,uvelout_taupB,vvelout_taupB,sswlout)
 
         
         tempout_taup = tempout_taupC
@@ -143,17 +156,25 @@
 ! upadting RG model
 ! Tbar = (1-alpha_rg)T + alpha_rg (T_taup - T_taun)
 
-
-        t(i,j,k,1,taup) =  (t(i,j,k,1,taup)
-     &  + alpha_rgt*(tempout_taup - tempout_taum)) * rkmh(i,j)
-        t(i,j,k,2,taup) =  (t(i,j,k,2,taup)  
-     &  + alpha_rgt*(saltout_taup - saltout_taum)) * rkmh(i,j)
-        u(i,j,k,taup) =  (u(i,j,k,taup)
-     &   + alpha_rgm*(uvelout_taup - uvelout_taum )) * rkmu(i,j)
-        v(i,j,k,taup) =  (v(i,j,k,taup)
-     &   + alpha_rgm*(vvelout_taup - vvelout_taum )) * rkmv(i,j)
-
-! T_taup = (1-beta_mld)T_taup + beta_mld (Tbar_taup - Tbar_taun)
+        call interp_extrap (i,j,k,kmax,tau_index,sswin,
+     &  tempout_taupB,saltout_taupB,uvelout_taupB,vvelout_taupB,sswlout1)
+        call interp_extrap (i,j,k+1,kmax,tau_index,sswin,
+     &  tempout_taupB,saltout_taupB,uvelout_taupB,vvelout_taupB,sswlout2)
+        cp = 4200.0 * 1024.5
+        flux_mask = 1.0
+        if (k .gt. 1) flux_mask = 0.0
+        t(i,j,k,1,taup) =  (t(i,j,k,1,taup) +
+     &   alpha_rgt*(tempout_taup - tempout_taum)) * rkmh(i,j) +
+     &   ((rmld_misc(i,j,1)*flux_mask+(sswlout1))*dt/
+     &   (max(1.0,h(i,j,k,taun))*cp) )*rkmh(i,j)
+        t(i,j,k,2,taup) =  (t(i,j,k,2,taup) +
+     &   alpha_rgt*(saltout_taup - saltout_taum)) * rkmh(i,j) +
+     &   ((rmld_misc(i,j,3)-pme_corr(i,j)-rmld_misc(i,j,15))*flux_mask*dt*35.0/
+     &   (max(1.0,h(i,j,k,taun))))*rkmh(i,j)
+        u(i,j,k,taup) =  (u(i,j,k,taup) +
+     &   alpha_rgm*(uvelout_taup - uvelout_taum )) * rkmu(i,j)
+        v(i,j,k,taup) =  (v(i,j,k,taup) +
+     &   alpha_rgm*(vvelout_taup - vvelout_taum )) * rkmv(i,j)
 
         hstart = 0
         do irepeat = 1,k-1
@@ -194,21 +215,22 @@
 
         enddo
 
-
         call tsuv_diffuse (i,j,kk,diffuse_temp,diffuse_salt)
         call tsuv_diffuse_tracer(i,j,kk,diffuse_tracers)
+
+#include "cparam.h"
 
          temp(i,j,kk,2) = temp(i,j,kk,2) 
      &   - (tracedubdxmld(kk,1)
      &   + tracedvbdymld(kk,1)) * dt* beta_mldt * rkmh(i,j)
      &   + diffuse_temp * diffuse_MY * dt * rkmh(i,j)
-     &   -  (temp(i,j,kk,2) -  temp_read(i,j,kk,month)) * dt * sec2day * 0.0
+     &   -  (temp(i,j,kk,2) -  temp_read(i,j,kk,month)) * dt * sec2day * 0.1
 
          salt(i,j,kk,2) = salt(i,j,kk,2) 
      &   - (tracedubdxmld(kk,2)
      &   + tracedvbdymld(kk,2)) *dt* beta_mldt * rkmh(i,j)
      &   + diffuse_salt * diffuse_MY * dt * rkmh(i,j)
-     &   -  (salt(i,j,kk,2) -  salt_read(i,j,kk,month)) * dt * sec2day * 0.0
+     &   -  (salt(i,j,kk,2) -  salt_read(i,j,kk,month)) * dt * sec2day * 0.1
 
          uvel(i,j,kk,2) = uvel(i,j,kk,2) 
      &   - (tracedubdxmld(kk,3)
@@ -230,9 +252,35 @@
 
  101    continue
 
+
         enddo
         enddo
         enddo
+
+!===============================================
+        do i=isc,iec
+        do j=jsc,jec
+        rh_sum = 0.0
+        do k=1,km-1
+        sswin(:) = 0.0
+        rh_sum = rh_sum + h(i,j,k,taun)
+
+        tau_index = 2
+        call interp_extrap (i,j,k,kmax,tau_index,sswin,
+     &  tempout_taup,saltout_taup,uvelout_taup,vvelout_taup,sswlout)
+
+        if (tempout_taup .ne. 0.0 .and. rh_sum .lt. (kmaxMYM-5)*5.0) then
+        t(i,j,k,1,taun) = t(i,j,k,1,taun) - 
+     &  (t(i,j,k,1,taun) - tempout_taup) * dt * rkmh(i,j) / dt
+        endif
+        if (saltout_taup .ne. 0.0 .and. rh_sum .lt. (kmaxMYM-5)*5.0) then
+        t(i,j,k,2,taun) = t(i,j,k,2,taun) - 
+     &  (t(i,j,k,2,taun) - saltout_taup) * dt * rkmh(i,j) / dt
+        endif
+        enddo 
+        enddo 
+        enddo 
+!===============================================
 
         temp(isc:iec,jsc:jec,1:kmaxMYM,1) = temp(isc:iec,jsc:jec,1:kmaxMYM,2)
         salt(isc:iec,jsc:jec,1:kmaxMYM,1) = salt(isc:iec,jsc:jec,1:kmaxMYM,2)
@@ -341,7 +389,7 @@
         implicit none
 
         integer :: ii, jj, kk
-        real :: diffuse_temp, diffuse_salt
+        real :: diffuse_temp, diffuse_salt, diiffuse_temp, diiffuse_salt
 
         integer :: iip, iim, jjp, jjm
         real :: rtemp1, rtemp2, rtemp3, rtemp4, rtemp5, rtemp6
@@ -355,7 +403,7 @@
      &    (temp(iip,jj,kk,1) - temp(ii,jj,kk,1) )*rdxu(iip,jj)
         rtemp2 = rkmh(iim,jj)*
      &    (temp(ii,jj,kk,1) - temp(iim,jj,kk,1) )*rdxu(ii,jj)
-        rtemp3 = (rtemp1 - rtemp2)*rdxh(ii,jj)  !--> Prajeesh
+        rtemp3 = (rtemp1 - rtemp2)*rdxh(ii,jj)
 
         rtemp4 = rkmh(ii,jjp)* (temp(ii,jjp,kk,1) - temp(ii,jj,kk,1))*rdyv(ii,jjp)
         rtemp5 = rkmh(ii,jjm)* (temp(ii,jj,kk,1) - temp(ii,jjm,kk,1))*rdyv(ii,jj)
@@ -370,7 +418,7 @@
      &    (salt(iip,jj,kk,1) - salt(ii,jj,kk,1) )*rdxu(iip,jj)
         rtemp2 = rkmh(iim,jj)*
      &    (salt(ii,jj,kk,1) - salt(iim,jj,kk,1) )*rdxu(ii,jj)
-        rtemp3 = (rtemp1 - rtemp2)*rdxh(ii,jj) !--->Prajeesh
+        rtemp3 = (rtemp1 - rtemp2)*rdxh(ii,jj)
 
         rtemp4 = rkmh(ii,jjp)*
      &   (salt(ii,jjp,kk,1) - salt(ii,jj,kk,1))*rdyv(ii,jjp)

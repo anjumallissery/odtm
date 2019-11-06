@@ -7,13 +7,13 @@ c
 c
 ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
             use size_mod, only : airt, chl, cld, dzmym, gdy, pme, pme_corr
-            use size_mod, only : rkmh, rvr, salt, sphm, ssw, temp, uvel, uwnd
+            use size_mod, only : rkmh, rvr, salt, sphm, ssw, temp, uvel, uwnd, t
             use size_mod, only : vvel, vwnd, we_baro, we_prof, zdepth, loop
             use size_mod, only : salt_read, SHCoeff, SMCoeff, temp_read, month
             use size_mod, only : diag_ext1, diag_ext2, diag_ext3
             use size_mod, only : diag_ext4, diag_ext5, diag_ext6
             use size_mod, only : rmld_misc, mld_mld, imt, jmt
-            use size_mod, only : isc, iec, jsc, jec
+            use size_mod, only : isc, iec, jsc, jec, taun
             use param_mod, only : day2sec, diffuse_my, diffuse_tr, dt, dtts
 
             use interp_extrap_mod, only : interp_extrap_we_profile
@@ -39,7 +39,7 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
         real :: sst_in, qs, ql, qb, rAlpha1, rL2, qnet_in, pme_in, rLATin
         real :: rLATMax, rvr_runoff, relax_South, relax_East, relax_on_off
         real :: alpha_rgm, alpha_rgt, beta_mldm, beta_mldt, gama
-        real :: rdrag, widS, widE
+        real :: rdrag, widS, widE, rwall
         !! Here is the start of Mixed Layer Model
 
 
@@ -64,7 +64,9 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
          ! print *, 'test=', temp(i,kk,j,1), rkmh(i,j)
          tempin(kk) = temp(i,j,kk,1) *rkmh(i,j)
          saltin(kk) = salt(i,j,kk,1) *rkmh(i,j)
-         tr_in(kk,:) = tr_nemuro(i,j,kk,1,:) *rkmh(i,j)
+         do ntr = 1, ntr_nemuro
+                tr_in(kk,ntr) = tr_nemuro(i,j,kk,1,ntr) *rkmh(i,j)
+         end do
          uvelin(kk) = uvel(i,j,kk,1) *rkmh(i,j)
          vvelin(kk) = vvel(i,j,kk,1) *rkmh(i,j)
          we_profin(kk) = we_prof(kk)
@@ -98,7 +100,7 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
          speed = (uwndin**2 + vwndin**2)**0.5
          airt_in = airt(i,j)
          sphm_in = sphm(i,j)
-         sst_in = tempin(1) ! temperature of first layer
+         sst_in = (tempin(1)*0.5+t(i,j,1,1,taun)*0.5) ! temperature of first layer
          call heat_flux(sphm_in,airt_in,sst_in,uwndin,vwndin,cldin,qnet_in,
      &   qs, ql, qb, tx, ty, Lv)
          pme_in  = (pme(i,j) + rvr(i,j)*0.0 + (ql/(Lv*1024.5))) * (-1.0)
@@ -140,7 +142,9 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 !         rmld_misc(i,kk,j) = entr_flux(kk)
          temp(i,j,kk,2) = tempin(kk) * rkmh(i,j)
          salt(i,j,kk,2) = saltin(kk) * rkmh(i,j)
-         tr_nemuro(i,j,kk,2,:) = tr_in(kk,:) * rkmh(i,j)
+         do ntr = 1, ntr_nemuro
+                tr_nemuro(i,j,kk,2,ntr) = tr_in(kk,ntr) * rkmh(i,j)
+         end do
          uvel(i,j,kk,2) = uvelin(kk) * rkmh(i,j)
          vvel(i,j,kk,2) = vvelin(kk) * rkmh(i,j)
 
@@ -167,10 +171,7 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
 c         if (j .le. widS) pvort(i,1,j) = (j-1)/widS
 c         if (j .le. widS) pvort(i,2,j) = (widS+1-j)/widS
-
          endif
-
-
          if (relax_East .eq. 1) then
          if (i .ge. imt-widE+1) then
             temp(i,j,kk,2) = temp(i,j,kk,2) -
@@ -191,7 +192,7 @@ c         if (j .le. widS) pvort(i,2,j) = (widS+1-j)/widS
 
 c         if (i .ge. imt-widE+1) pvort(i,1,j) = (imt-i)/widE
 c         if (i .ge. imt-widE+1) pvort(i,2,j) = (widE+i-imt)/widE
-        endif
+         endif
         enddo
 
         if ( mod(loop,100000) .eq. 0) then

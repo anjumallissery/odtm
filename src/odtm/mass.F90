@@ -58,7 +58,7 @@ subroutine mass_balance
         call mpp_sum(rgrid_g)
 !        write(msg,*) "Global Sum of mass difference", &
 !        rmass_g-rmass_b
-        call mpp_error(NOTE,msg)
+!        call mpp_error(NOTE,msg)
 
         do i=isc,iec
           do j=jsc,jec

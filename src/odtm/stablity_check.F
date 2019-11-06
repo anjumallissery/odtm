@@ -13,6 +13,7 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
         real :: rho_local(km), rtemp, rsalt, rDep
         integer :: kk, icheck, iter
 
+
         do kk=1,km-1
 
        if(t(i,j,kk,1,taun) .gt. tr01_max(kk))
@@ -27,7 +28,7 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
         enddo
 
-        do iter = 1,100 !Prajeesh why checking 100 times
+        do iter = 1,0 !Prajeesh why checking 100 times
         icheck = 0
         
         do kk=1,km
@@ -39,6 +40,7 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
         do kk=2,km
         if ( rho_local(kk)*rkmh(i,j) .lt. rho_local(kk-1)*rkmh(i,j)) then
+        write(*,*) 'In stability check: iter = ', iter
         t(i,j,kk,1,taun) = (
      &   (t(i,j,kk,1,taun)*h(i,j,kk,taun) + 
      &    t(i,j,kk-1,1,taun)*h(i,j,kk-1,taun))/
@@ -57,7 +59,7 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
  125    continue
 
-        do iter = 1,100
+        do iter = 1,0
         icheck = 0
         
         do kk=1,km
