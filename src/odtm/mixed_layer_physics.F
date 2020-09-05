@@ -1,4 +1,4 @@
-         subroutine mixed_layer_physics
+         subroutine mixed_layer_physics(we_profin,sswin_out) !we_prof and sswin added by anju
 ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 c
 c
@@ -22,6 +22,8 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
             use nemuro_mod, only : tr_nemuro=>tr, ntr_nemuro=>ntracers, tr_read
 
         implicit none
+
+        real,intent(out) :: sswin_out(isc:iec,jsc:jec,1:kmax)
         real :: tempin(kmax), saltin(kmax), tr_in(kmax,ntr_nemuro)
         real :: rmldout
         real :: uvelin(kmax), vvelin(kmax), we_profin(0:kmax+1)
@@ -34,14 +36,26 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
         integer :: tau_index
         integer :: i, j, k, ntr
         integer :: kkk, ii, jj, kk, icval
-        real :: albedo, sfx, rAlpha2, rL1, rchla, rPAR, rinfraRed, rvisible
+        !here rchla replaced with rchla(kmax) anju 03Aug2020
+        real :: albedo, sfx, rAlpha2, rL1, rchla(kmax), rPAR, rinfraRed, rvisible
+        !**************************************
+
+        !added by anju 02July2020
+        real :: rchla_pass
+        !-----------------------
+
+        
         real :: rvisible_extinct, cldin, uwndin, vwndin, speed, airt_in, sphm_in
         real :: sst_in, qs, ql, qb, rAlpha1, rL2, qnet_in, pme_in, rLATin
         real :: rLATMax, rvr_runoff, relax_South, relax_East, relax_on_off
         real :: alpha_rgm, alpha_rgt, beta_mldm, beta_mldt, gama
         real :: rdrag, widS, widE, rwall
         !! Here is the start of Mixed Layer Model
-
+        
+        !added by anju 02July2020
+        real :: atomic_wt_N
+        !--------------------------------
+        sswin_out(:,:,:)=0.0
 
          do i=isc, iec
          do j=jsc, jec
@@ -52,7 +66,8 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
          dzmym(kkk) = 5.0
          zdepth(kkk) = zdepth(kkk-1) + 5.0
          enddo
-
+        
+        
          if (rkmh(i,j) .eq. 1.0 ) then
 
         ii = i
@@ -75,23 +90,50 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! treatement for surface light
         sswin(1)  = ssw(i,j)
-        albedo     = 0.3
+        albedo     = 0.0
+        !no need to give extra albedo as the rad is net surface
+        !radiation
+        
+        
+        !-----------------------------------------added by anju
+        !02July2020
+        atomic_wt_N = 14.01    !g/mol  added by anju 02July2020 
+        rchla(1)    = ((tr_in(1,1)*1e6)+(tr_in(1,2)*1e6))*atomic_wt_N
+        
+                                        !added byanju02July2020, ((ps+pl)*atomic wt of N)  
+                                                              ! *1e6 added for unit
+                                        !conversion from molN/l to micromol N/l. Check it again I have doubtshere.
+        
+        
+         
         sfx =  sswin(1)  *(1.0-albedo)     !rsum/ncount  !* (1 -mod(loop,2))
         do kk = 2,kmax
         rAlpha1    =       0.805
         rAlpha2    =       0.195
         rL1        = 0.043
         rL2        = 0.42
-        rchla      = max(0.02,chl(i,j)) !0.02  ! mg/m3
+        
+        
+        !below line replaced by anju 02July2020-----
+        !rchla      = max(0.02,chl(i,j)) !0.02  ! mg/m3
+        rchla(kk)   = ((tr_in(1,1)*1e6)+(tr_in(1,2)*1e6))*atomic_wt_N
+        
+        rchla_pass  = max(0.02,rchla(kk))
+        !**************************************************************
         rPAR = 0.45
         rinfraRed =
      & sfx * rPAR * ( rAlpha1 * exp(-1.0d0 * (kk-1) * 5.0 * rL1)+
      &                 rAlpha2 * exp(-1.0d0 * (kk-1) * 5.0 * rL2) )
-        rvisible  = sfx * (1-rPAR) * rvisible_extinct (rchla, kk-1)
+        rvisible  = sfx * (1-rPAR) * rvisible_extinct (rchla_pass, kk-1)!here rchla replaced with rchla_pass anju 03Aug2020
         sswin(kk) = rinfraRed * 0.0 + rvisible
+        
+        
+        
         enddo
-
-
+        
+        sswin_out(i,j,:)=sswin(:)
+        
+        
 ! treatement for surface light
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
          cldin= cld(i,j) * 0.0
@@ -131,6 +173,8 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
          rmld_misc(i,j,14)  = qb
          rmld_misc(i,j,15)  = rvr(i,j)
 
+         call calc_rlight(ssw(i,j), tr_in(:,1), tr_in(:,2),
+     &  dzmym(:), sswin(:))
 
          call MT1 (tempin, saltin, tr_in, uvelin, vvelin, tauxin,
      &    tauyin, qnet_in, sswin, pme_in, ntr_nemuro,
@@ -238,3 +282,26 @@ c          call mld_consistency (kmax,ii,jj)
         return
         end
 !! Here is the end of Mixed Layer Model
+
+        subroutine calc_rlight(sfx, PS, PL, dz, rlight)
+          real, intent(in) :: sfx, PS(:), PL(:), dz(:)
+          real, intent(out) :: rlight(:)
+          real :: PAR, rsum, rkappa
+
+          integer :: k, kk
+          real, parameter :: Alpha1    =       0.03  !  0.04--- Light Dissip Coeff. of sea water                       [/m]
+          real, parameter :: Alpha2    =       0.018/1e-6  !0.04! Self Shading Coeff.[1/mol m]
+
+          rsum = 0.0
+
+          PAR  = sfx * 0.45
+          do k = 1,levs
+            do kk =1,k
+              rkappa = Alpha1 + Alpha2 * (PS(kk) + PL(kk))
+              rsum = rsum + rkappa * dz(kk)
+            end do
+            rlight(k) = PAR * exp(-1.0d0 * rsum)
+          end do
+
+        end subroutine calc_rlight
+

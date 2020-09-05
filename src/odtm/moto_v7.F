@@ -12,9 +12,11 @@
         SUBROUTINE MT1 (tempin, saltin, tr_in, uvelin, vvelin, tauxin,tauyin, 
      &     qnet, sswin, pmein, ntr, rLATin,dt_rg,SM,SH,we_prof, we_baro, icval,R,
      &     entr_flux, speed, pme_eps, rvr_runoff,
-     &     diag1, diag2, diag3, diag4, diag5, diag6,ii,jj)
+     &     diag1, diag2, diag3, diag4, diag5, diag6,ii,jj) 
 
         implicit none
+        
+
  
 ! ONE DIMENSIONAL MIXED LAYER MODEL
 
@@ -142,7 +144,8 @@
       G3=G3*XK2
       G4=G4*SQRT(B1*3.0*A1*(G1-C1))*XK2*Z0
       XK=(-1.0)*0.5*XK
-      AL=0.04
+      AL=0.4 !anju changed from 0.04 to 0.4 08Aug2020
+
 ! COEFFICIENTS FOR NEAR SURFACE INTERPOLATION
       H2=ALOG((1.0+Z0D)/(2.0+Z0D))
       H3=ALOG(Z0D/(1.0+Z0D))
@@ -195,7 +198,9 @@
       DO 23 M=1,NAZ
       SZ=0.5*(SA1(M)+SA1(M+1))-30.0
 ! THERMAL EXPANSION COEFFICIENT
-      BT=((1.3-0.025*SZ)*(TE1(M)+TE1(M+1)) + (3.3+0.325*SZ))*R5  
+      !BT=((1.3-0.025*SZ)*(TE1(M)+TE1(M+1)) + (3.3+0.325*SZ))*R5  
+      BT=((1.3-0.025*SZ)*(TE1(M)+TE1(M+1))*0.5 + (3.3+0.325*SZ))*R5 !0.5
+                                                                    !in this equation is added by anju 13Aug2020 
 !NOTE FOR CORRECTION, NEED one EXTRA *0.5
       IF(M.EQ.1) GO TO 24
 ! STRATIFICATION

@@ -61,6 +61,12 @@ program main
 
     integer :: iday_month, ii
     real :: age_time, day_night, rlct, depth_mld
+    
+    !added by anju 03Aug2020
+    real :: we_profin(0:kmaxMYM+1)
+    real,allocatable :: sswin(:,:,:)
+    !********************        
+        
     type(time_type) :: time, time_step, time_restart
 
     integer :: domain_layout(2), used
@@ -86,7 +92,8 @@ program main
     character (len=32) :: timestamp
     integer :: restart_interval(6) = 0, layout(2)
     integer :: start_date(6) = 0, ntr
-    real :: dz_MYM(kmaxMYM)=[(real(ii)*5.0,ii=1,kmaxMYM)]
+    !real :: dz_MYM(kmaxMYM)=[(real(ii)*5.0,ii=1,kmaxMYM)]
+    real :: dz_MYM(kmaxMYM)=[(real(ii)*0.0 + 5.0,ii=1,kmaxMYM)] !added by anju08Aug2020
     
     namelist /main_nml/ restart_interval, layout, days, start_date, &
                         rgm_zero_tracer_adv
@@ -265,13 +272,24 @@ program main
 
 
         call mpp_clock_begin(mld_clk)
-        call mixed_layer_physics
+        
+        !modified by anju 03Aug2020********************************
+        !call mixed_layer_physics
+        call mixed_layer_physics(we_profin(0:kmaxMYM+1),sswin) !we_prof
+                                                                     !and sswin added by anju 16Aug2020
+        !**********************************************************
+        
+        !
         call mpp_update_domains(uvel(:,:,:,2),domain)
         call mpp_update_domains(vvel(:,:,:,2),domain)
         call mpp_clock_end(mld_clk)
 
         call mpp_clock_begin(nemuro_clk)
-        call nemuro_driver(Time, temp(:,:,:,2), salt(:,:,:,2), ssw, dt, dz_MYM)
+        !added by anju 04Aug2020
+        
+        call nemuro_driver(Time,temp(:,:,:,2),salt(:,:,:,2),ssw,dt,dz_MYM,domain,we_profin(0:kmaxMYM+1),loop,sswin,imt,jmt,gdx(:),gdy(:)) !sswin(kmax) added by anju 16Aug2020
+                            
+        !*************************************
         call mpp_clock_end(nemuro_clk)
 
         call balance_pme()
@@ -376,6 +394,7 @@ program main
         allocate ( lmask(isc:iec,jsc:jec) ) 
         allocate ( lmask3(isc:iec,jsc:jec,km) )
         allocate ( lmask3m(isc:iec,jsc:jec,kmaxMYM) )
+        allocate ( sswin(isc:iec,jsc:jec,kmaxMYM) )
 
         lmask=.false.; lmask3 = .false.; lmask3m = .false.
 
@@ -544,7 +563,8 @@ program main
 
     end subroutine init_odtm
 
-
+        
+        
     subroutine send_data_diag(time)
 
         type(time_type) :: time
@@ -785,7 +805,8 @@ program main
 
         temp_read(:,:,:,lm) = temp_read(:,:,:,1)
         salt_read(:,:,:,lm) = salt_read(:,:,:,1)
-
+        
+        
         if (file_exist('INPUT/'//trim(restart_file))) then
             call restore_state(restart_odtm)
         else

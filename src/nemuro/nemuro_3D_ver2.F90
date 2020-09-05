@@ -1,6 +1,10 @@
 
 module nemuro_mod
 
+!anju 02Aug2020*******************************************
+use size_mod, only : month,nit_read,sil_read ,imt,jmt,gdx,gdy
+!************************************
+
 use mpp_mod, only : mpp_npes, mpp_pe, mpp_error, stdout, FATAL, WARNING, NOTE, mpp_init
 use mpp_mod, only : mpp_exit, mpp_max, mpp_sum, mpp_sync, mpp_root_pe
 use mpp_mod, only: mpp_clock_id, mpp_clock_begin, mpp_clock_end
@@ -36,6 +40,8 @@ real, public, allocatable :: tr(:,:,:,:,:) ! tracers
 real, public, allocatable :: tr_read(:,:,:,:,:) ! tracers 
 
 integer, allocatable :: id_tr(:)
+integer :: id_rlight
+integer :: id_sswin
 
 logical :: initialized=.false., use_this_module=.true.
 
@@ -49,6 +55,7 @@ character (len=32) :: restart_file='nemuro_restart.nc'
 
 public :: get_num_tracers, initialize_nemuro, diag_out_nemuro, save_restart_nemuro
 public :: nemuro_driver
+
 
 contains
 
@@ -89,7 +96,7 @@ subroutine initialize_nemuro(Time,domain,levs_in,id_lon,id_lat,id_depth)
                       tr(:,:,:,1,ntr), tr(:,:,:,2,ntr),domain=domain)
     end do
     tr(:,:,:,:,:) = 0.0
- 
+         
     do ntr = 1, ntracers
         if (.not. field_exist(tr_clim_file, trim(trnms(ntr)))) then
           call mpp_error(WARNING, 'field '//trim(trnms(ntr))//' not found in '//trim(tr_clim_file))
@@ -127,6 +134,11 @@ subroutine initialize_nemuro(Time,domain,levs_in,id_lon,id_lat,id_depth)
                 missing_value=FILL_VALUE)
     end do
 
+    id_rlight = register_diag_field('nemuro', 'rlight', (/id_lon, id_lat, id_depth/), &
+                init_time=Time, long_name='rlight', missing_value=FILL_VALUE)
+
+    id_sswin = register_diag_field('nemuro', 'sswin', (/id_lon, id_lat, id_depth/), &
+                init_time=Time, long_name='sswin', missing_value=FILL_VALUE)
     call save_restart(restart_nemuro,'initial') 
 
     initialized = .true.
@@ -162,62 +174,181 @@ integer function get_num_tracers()
 end function get_num_tracers
 
 
-subroutine nemuro_driver(Time, T0, S0, sfx, dt, dz)
+subroutine nemuro_driver(Time, T0, S0, sfx, dt, dz,domain,we_prof,loop,sswin,imt,jmt,gdx,gdy) !domain, we_prof,loop, sswin anju 02Aug2020
   type(time_type), intent(in) :: Time
   real, intent(in), dimension(isd:, jsd:, :) :: T0, S0
   real, intent(in), dimension(isc:, jsc:) :: sfx
-  real, intent(in) :: dt, dz(:)
-  real, dimension(isc:iec, jsc:jec, 1:levs) :: POM_F_depth, Opal_F_depth, CaCO3_F_depth, &
-                                          RnewS, RnewL
-   
-  real :: rlight(levs)
-  integer :: i, j, k
+  real, intent(in) :: dt, dz(:), gdx(:), gdy(:)
+  real, dimension(isc:iec, jsc:jec, 1:levs) :: RnewS, RnewL
+  integer, intent(in) :: loop, imt, jmt
+ 
+
+ 
+!********anju 02Aug2020***************
+  type(domain2d), intent(in) :: domain 
+  real, intent(in) :: we_prof(0:levs+1),sswin(isc:,jsc:,1:) !sswin added by anju 16Aug2020 
+  real :: pomin(levs),opalin(levs),caco3in(levs) 
+  real :: sioh4in(levs),tempin(levs),saltin(levs),no3in(levs)      
+  real :: POM_F_depth,Opal_F_depth,CaCO3_F_depth
+!**********************************************
+  real :: rlight(levs), rlight_diag(isc:iec,jsc:jec,levs)
+  real :: sswin_diag(isc:iec,jsc:jec,levs)
+  integer :: i, j, k, nt !anju 02Aug2020
+  logical :: used
 
   if(.not.initialized) call mpp_error(FATAL,"nemuro not initialized!!!")
 
   if(.not.use_this_module) return
+        
+        !anju 02Aug2020****************************
+        do nt = 1,lm-1
+            call read_data(tr_clim_file, 'NO3', nit_read(:,:,:,nt),timelevel=nt,domain=domain)
+            call read_data(tr_clim_file, 'SIOH4',sil_read(:,:,:,nt),timelevel=nt, domain=domain)
+        enddo
+        !*******************************************
 
+        !added by anju 03Aug2020
+        POM_F_depth   = 0.0
+        Opal_F_depth  = 0.0
+        CaCO3_F_depth = 0.0
+        !*******************************        
+       rlight_diag(:,:,:)=FILL_VALUE
+       sswin_diag(:,:,:)=FILL_VALUE
+        
   do i = isc, iec
     do j = jsc, jec
       ! calculate rlight
       if (rkmh(i,j)/=1.) cycle 
       call calc_rlight(sfx(i,j), tr(i,j,:,2,1), tr(i,j,:,2,2), &
-           dz(:), rlight(:))
+           dz(:), rlight(:),sswin(i,j,:), imt, jmt, gdx(:), gdy(:)) !sswin added by anju 16Aug2020
+      
+        rlight_diag(i,j,:) = rlight(:)
+        
+         
+        !print*, "check_HERE", rlight(:)
+
+        
+        !added by anju 02Aug2020
+          do k=1, levs
+          pomin(k)   = tr(i,j,k,2,8) !check the unit of it 
+          opalin(k)  = tr(i,j,k,2,11)
+          caco3in(k) = tr(i,j,k,2,13)
+          no3in(k)   = tr(i,j,k,2,6)
+          sioh4in(k) = tr(i,j,k,2,10)
+          tempin(k)  = T0(i,j,k)
+          saltin(k)  = S0(i,j,k)
+          end do
+        !*************************
+
       do k = 1, levs
+        
         call nemuro(tr(i,j,k,2,1), tr(i,j,k,2,2), tr(i,j,k,2,3), &
                     tr(i,j,k,2,4), tr(i,j,k,2,5), tr(i,j,k,2,6), &
                     tr(i,j,k,2,7), tr(i,j,k,2,8), tr(i,j,k,2,9), &
                     tr(i,j,k,2,10), tr(i,j,k,2,11), tr(i,j,k,2,12), &
                     tr(i,j,k,2,13), tr(i,j,k,2,14), tr(i,j,k,2,15), &
                     T0(i,j,k), S0(i,j,k), &
-                    dt, rlight(k), k, levs, dz(k), POM_F_depth(i,j,k), &
-                    Opal_F_depth(i,j,k), CaCO3_F_depth(i,j,k), RnewS(i,j,k), &
-                    RnewL(i,j,k))
+                    dt, rlight(k), k, levs, dz(1), POM_F_depth, &
+                    Opal_F_depth, CaCO3_F_depth, RnewS(i,j,k), &
+                    RnewL(i,j,k),nit_read(i,j,k,month),sil_read(i,j,k,month), &
+                    pomin, opalin, caco3in, no3in, sioh4in, tempin, saltin, &
+                    we_prof, loop,i,j,imt,jmt,gdx,gdy) !nit_read, sil_read,poim,opalin,caco3in
+                    !no3in,sioh4in,tempin,saltin and we_prof added by anju
+                    !03Aug2020
       end do
     end do
   end do
 
+      used = send_data(id_rlight, rlight_diag(:,:,:), Time)
+      used = send_data(id_sswin, sswin(:,:,:), Time)
+
 end subroutine nemuro_driver
 
 
-subroutine calc_rlight(sfx, PS, PL, dz, rlight)
-  real, intent(in) :: sfx, PS(:), PL(:), dz(:)
+subroutine calc_rlight(sfx, PS, PL, dz, rlight,sswin, imt, jmt, gdx, gdy) !sswin added by anju 16Aug2020
+  real, intent(in) :: sfx, PS(:), PL(:), dz(:),sswin(:)
   real, intent(out) :: rlight(:)
   real :: PAR, rsum, rkappa
- 
+  
+  real :: gdx(:), gdy(:)      
+  integer :: imt, jmt
   integer :: k, kk 
-  real, parameter :: Alpha1    =       0.04  ! Light Dissip Coeff. of sea water                       [/m]
-  real, parameter :: Alpha2    =       0.04/1e-6 ! Self Shading Coeff.                                    [1/mol m]
-       
+  real, parameter :: Alpha1    =   0.03         !0.04! Light Dissip Coeff. of sea water                       [/m]
+  real, parameter :: Alpha2    =   0.018/1e-6   !0.04- Self Shading Coeff.                                    [1/mol m]
+           
   rsum = 0.0
-        
+
   PAR  = sfx * 0.45
+        
+     
   do k = 1,levs
+        
     do kk =1,k
       rkappa = Alpha1 + Alpha2 * (PS(kk) + PL(kk))
       rsum = rsum + rkappa * dz(kk)
     end do
-    rlight(k) = PAR * exp(-1.0d0 * rsum)
+        
+    rlight(k) = PAR * exp(-1.0d0 * rsum)  
+    rlight(k) = sswin(k)  
+       
+        !print*, k, k*5.0, rlight(k) 
+        !if (k .le. 10) then
+        !print*, k, k*5.0, rlight(k)
+        !end if
+        
+        !DELETE
+       ! rlight(1)  =   74.958780 
+       ! rlight(2)  =   62.993800
+       ! rlight(3)  =   52.940480
+       ! rlight(4)  =   44.493940
+       ! rlight(5)  =   37.397450
+       ! rlight(6)  =   31.435250
+       ! rlight(7)  =   26.425790
+       ! rlight(8)  =   22.216590
+       ! rlight(9)  =   17.985590
+       ! rlight(10) =   14.501970
+       ! rlight(11) =   11.767160
+       ! rlight(12) =    9.642747
+       ! rlight(13) =    8.006134
+       ! rlight(14) =    6.719296
+       ! rlight(15) =    5.664862
+       ! rlight(16) =    4.779585
+       ! rlight(17) =    4.045645
+       ! rlight(18) =    3.431784
+       ! rlight(19) =    2.917328
+       ! rlight(20) =    2.490853
+       ! rlight(21) =    2.129354
+       ! rlight(22) =    1.821442
+       ! rlight(23) =    1.558831
+       ! rlight(24) =    1.334635
+       ! rlight(25) =    1.143101
+       ! rlight(26) =    0.979401
+       ! rlight(27) =    0.839385
+       ! rlight(28) =    0.719615
+       ! rlight(29) =    0.618158
+       ! rlight(30) =    0.531957
+       ! rlight(31) =    0.457852
+       ! rlight(32) =    0.394077
+       ! rlight(33) =    0.339185
+       ! rlight(34) =    0.291939
+       ! rlight(35) =    0.251275
+       ! rlight(36) =    0.216274
+       ! rlight(37) =    0.186149
+       ! rlight(38) =    0.160220
+       ! rlight(39) =    0.137902
+       ! rlight(40) =    0.118694
+       ! rlight(41) =    0.102161
+       ! rlight(42) =    0.087931
+       ! rlight(43) =    0.075682
+       ! rlight(44) =    0.065141
+       ! rlight(45) =    0.056067
+       ! rlight(46) =    0.048257
+       ! rlight(47) =    0.041535
+       ! rlight(48) =    0.035750
+       ! rlight(49) =    0.030770
+       ! rlight(50) =    0.026484
+       ! rlight(51) =    0.022795
+       !DELETE
   end do
 
 end subroutine calc_rlight 
@@ -226,8 +357,13 @@ end subroutine calc_rlight
 subroutine nemuro ( PS, PL, ZS, ZL, ZP, NO3, NH4, POM, DOM, SIOH4, Opal, &
                        Ca, CaCO3, TCO2, TALK, T0, S0, &
                        dt, rlight, k, km, dz, POM_F_depth, &
-                       Opal_F_depth, CaCO3_F_depth, RnewS, RnewL)  
-
+                       Opal_F_depth, CaCO3_F_depth, RnewS, RnewL, &
+                       nit_relax,sil_relax,pomin, opalin, &
+                       caco3in, no3in, sioh4in, tempin, saltin, &
+                       we_prof,loop,i,j,imt,jmt,lon,lat) !nit_relax, sil_relax, pomin, opalin  
+                       !caco3in,no3in,sioh4in,tempin,saltin,we_prof
+                       !POM_F_depth, Opal_F_depth, CaCO3_F_depth, loop
+                       !added by anju 03Aug2020 
 
   implicit none
 
@@ -251,15 +387,34 @@ subroutine nemuro ( PS, PL, ZS, ZL, ZP, NO3, NH4, POM, DOM, SIOH4, Opal, &
   real, intent(in) :: S0 ! Salinity
   real, intent(in) :: dt ! time-step
   real, intent(in) :: rlight 
-  integer, intent(in) :: k, km 
+  integer, intent(in) :: k, km, i,j !i, j added by anju 03Aug2020 
+  integer, intent(in) :: imt,jmt    !imt and jmt added by anju 15Aug2020 
+ ! real, intent(in) :: gdx(imt),gdy(jmt)       !gdx and gdy added by anju 15Aug2020 
   real, intent(in) :: dz
-  real, intent(out) :: POM_F_depth, Opal_F_depth, CaCO3_F_depth, RnewS, &
-                       RnewL
+  real, intent(out) :: RnewS, RnewL !added by anju 03Aug2020.
 
-!local variables           
-  real :: pomin, opalin, caco3in, no3in,sioh4in
+        
+  !added by anju 03Aug2020
+  real, intent(in) :: nit_relax, sil_relax
+  real, intent(in) :: lon(imt), lat(jmt)
+  real, intent(inout) :: pomin(km),opalin(km),caco3in(km) 
+  real, intent(inout) :: no3in(km),sioh4in(km),tempin(km)
+        
+  real, intent(inout) :: saltin(km)
 
-
+  real :: w1,w2,no31,no32,sioh41,sioh42,t01,t02,s01,s02
+  real :: we_prof(0:km+1)
+  real :: no3_grad(km),sioh4_grad(km) !added on 07July2020      
+  real :: t0_grad(km),s0_grad(km)     !added on 07July2020      
+  real :: ExcNO3,ExcSiOH4,ExcT0,ExcS0             !added on 07July2020
+  real :: POM_F_depth,Opal_F_depth,CaCO3_F_depth
+  real :: POM_F_Z(km),Opal_F_Z(km)
+  integer :: loop
+  real :: pomin_sm(51),opalin_sm(51),caco3in_sm(51),no3in_sm(51)
+  real :: sioh4in_sm(51),tempin_sm(51),saltin_sm(51)
+  !**********************************************************         
+         
+        
 !Small Phytoplankton - Tra01
   real :: PS_Photosynthesis
   real :: PS_Respiration
@@ -335,10 +490,12 @@ subroutine nemuro ( PS, PL, ZS, ZL, ZP, NO3, NH4, POM, DOM, SIOH4, Opal, &
 
   real :: PS_f, PL_f, ZS_f, ZL_f, ZP_f, NO3_f, NH4_f, POM_f, DOM_f, &
                   SIOH4_f, Opal_f, Ca_f, CaCO3_f, TCO2_f, TALK_f 
-  real :: ExpPON, ExpOpal, ExcNO3, ExcSiOH4
-  real :: ExpCaCO3,ExcT0,ExcS0
+  real :: ExpPON, ExpOpal
+  real :: ExpCaCO3
 
   integer          :: kk   
+  integer          :: Z_c, kzc, kzcp !added anju 03Aug2020
+
 ! real(8) Monod, expPsi
   real             :: rtemp1, rtemp2
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
@@ -353,7 +510,7 @@ subroutine nemuro ( PS, PL, ZS, ZL, ZP, NO3, NH4, POM, DOM, SIOH4, Opal, &
  real, parameter :: PSmin     =       30.0              ! min C:Chla ratio for PS,                               [g:g]
  real, parameter :: PLmin     =       15.0              ! min C:Chla ratio for PL,                               [g:g]
 
- real, parameter :: VmaxS     =       0.4/D2S           ! PS Maximum Photosynthetic rate @0degC                  [/s] 
+ real, parameter :: VmaxS     =       0.4/D2S !0.4/D2S           ! PS Maximum Photosynthetic rate @0degC                  [/s] 
  real, parameter :: KNO3S     =       1.0e-6            ! PS Half satuation constant for Nitrate                 [molN/l] 
  real, parameter :: KNH4S     =       0.1e-6            ! PS Half satuation constant for Ammonium                [molN/l] 
  real, parameter :: PsiS      =       1.5/1e-6          ! PS Ammonium Inhibition Coefficient                     [l/molN]         
@@ -364,8 +521,8 @@ subroutine nemuro ( PS, PL, ZS, ZL, ZP, NO3, NH4, POM, DOM, SIOH4, Opal, &
  real, parameter :: RPS0      =       0.03/D2S          ! PS Respiration Rate at @0degC                          [/s]
  real, parameter :: KRS       =       0.0519            ! PS Temp. Coeff. for Respiration                        [/degC]
  real, parameter :: GammaS    =       0.135             ! PS Ratio of Extracell. Excret. to Photo.               [(nodim)]
- real, parameter :: VmaxL     =       0.8/D2S           ! PL Maximum Photosynthetic rate @0degC                  [/s] 
- real, parameter :: KNO3L     =       3.0e-6            ! PL Half satuation constant for Nitrate                 [molN/l]
+ real, parameter :: VmaxL     =       0.8/D2S !0.8      ! PL Maximum Photosynthetic rate @0degC                  [/s] 
+ real, parameter :: KNO3L     =       3.0e-6  !3.0      ! PL Half satuation constant for Nitrate                 [molN/l]
  real, parameter :: KNH4L     =       0.3e-6            ! PL Half satuation constant for Ammonium                [molN/l]
  real, parameter :: KSIL      =       6.0e-6            ! PL Half satuation constant for Silicate                [molSi/l]
  real, parameter :: PsiL      =       1.5/1e-6          ! PL Ammonium Inhibition Coefficient                     [l/molN]
@@ -453,17 +610,16 @@ subroutine nemuro ( PS, PL, ZS, ZL, ZP, NO3, NH4, POM, DOM, SIOH4, Opal, &
  real, parameter :: RCco      =       0.5               ! Ratio of Inorganic C to total C in Cocolithophoroids   [Nodim]  
  real, parameter :: RCfo      =       0.5               ! Ratio of Inorganic C to total C in Foraminifera        [Nodim]  
 
-
-  real :: z_c, grad_POM, grad_Opal, grad_CaCO3
-  integer :: kzc, kzcp
-
-       
+        
+    real ::  grad_POM, grad_Opal, grad_CaCO3
+        
+        !print*, i,j,k, lon(i), lat(j), nit_relax*1e6, sil_relax*1e6
  
-  pomin = pom
-  opalin = opal 
-  caco3in = caco3 
-  no3in = no3
-  sioh4in = sioh4
+ !pomin = pom
+ !opalin = opal 
+ !caco3in = caco3 
+ !no3in = no3
+ !sioh4in = sioh4
         
 
 ! NEMURO EQUATIONS FOR STATE VARIABLES
@@ -665,82 +821,181 @@ subroutine nemuro ( PS, PL, ZS, ZL, ZP, NO3, NH4, POM, DOM, SIOH4, Opal, &
        
         TALK_f = (2.0 * Ca_f) - NO3_f + NH4_f    
         
+        
+        
+        !*******************!        shapiro filter to get rid of numerical
+        !instability due to the advection problem !!! added by anju 16July2020
+
+        do kk = k-1, k+1
+
+        if (mod(loop,100).eq.0)then
+
+
+        if ( k.ge.4 .and. k.le.48 ) then
+
+        pomin_sm(kk) =(1.0/16.0) * ((-1*pomin(kk-2))+(4*pomin(kk-1)) &
+               +(10*pomin(kk))+(4*pomin(kk+1))+(-1*pomin(kk+2)))
+
+        opalin_sm(kk)=(1.0/16.0) * ((-1*opalin(kk-2))+(4*opalin(kk-1)) &
+             +(10*opalin(kk))+(4*opalin(kk+1))+(-1*opalin(kk+2)))
+
+        caco3in_sm(kk)=(1.0/16.0)*((-1*caco3in(kk-2))+(4*caco3in(kk-1)) &
+          +(10*caco3in(kk))+(4*caco3in(kk+1))+(-1*caco3in(kk+2)))
+
+        no3in_sm(kk) =(1.0/16.0) *((-1*no3in(kk-2))+(4*no3in(kk-1)) &
+          +(10*no3in(kk))+(4*no3in(kk+1))+(-1*no3in(kk+2)))
+
+        sioh4in_sm(kk) =(1.0/16.0)*((-1*sioh4in(kk-2))+(4*sioh4in(kk-1)) &
+         +(10*sioh4in(kk))+(4*sioh4in(kk+1))+(-1*sioh4in(kk+2)))
+
+        pomin(kk)=pomin_sm(kk)
+        opalin(kk)=opalin_sm(kk)
+        caco3in(kk)=caco3in_sm(kk)
+        no3in(kk) =no3in_sm(kk)
+        sioh4in(kk)= sioh4in_sm(kk)
+        
+        end if
+        end if
+        end do
+        
+        if (mod(loop,100).eq.0)then
+        if ( k.ge.4 .and. k.le.48 ) then
+
+        POM = pomin_sm(k)
+        Opal= opalin_sm(k)
+        CaCO3 = caco3in_sm(k)
+        NO3 = no3in_sm(k)
+        SIOH4 = sioh4in_sm(k)
+        !!T0    = tempin_sm(k)
+        !!S0    = saltin_sm(k)
+        !!UVEL0 = uvelin_sm(k)
+        !!VVEL0 = vvelin_sm(k)
+
+        end if
+        end if
+
+        !********************************************************
+              
+        !exchange of nutrients added by anju 07July2020
+        
+        
+        
+        if (k.eq.1) then
+        
+        
+        w1     = (we_prof(k)+we_prof(k))/2.0
+        w2     = (we_prof(k)+we_prof(k+1))/2.0
+
+        no31   = (no3in(k)+no3in(k))/2.0
+        no32   = (no3in(k)+no3in(k+1))/2.0
+
+        sioh41 = (sioh4in(k)+sioh4in(k))/2.0
+        sioh42 = (sioh4in(k)+sioh4in(k+1))/2.0
+
+        t01 = (tempin(k)+tempin(k))/2.0
+        t02 = (tempin(k)+tempin(k+1))/2.0
+
+        s01 = (saltin(k)+saltin(k))/2.0
+        s02 = (saltin(k)+saltin(k+1))/2.0
+        
+        no3_grad(k)    = ((w1+w2)/2.0) * (no31 - no32)/(dz)
+        sioh4_grad(k)  = ((w1+w2)/2.0) * (sioh41 - sioh42)/(dz)
+        t0_grad(k)     = ((w1+w2)/2.0) * (t01 - t02)/(dz)
+        s0_grad(k)     = ((w1+w2)/2.0) * (s01 - s02)/(dz)
+
+        else if ((k.ge.2) .and. (k.lt.km)) then
+
+        w1     = (we_prof(k)+we_prof(k-1))/2.0
+        w2     = (we_prof(k)+we_prof(k+1))/2.0
+
+        no31   = (no3in(k)+no3in(k-1))/2.0
+        no32   = (no3in(k)+no3in(k+1))/2.0
+        sioh41 = (sioh4in(k)+sioh4in(k-1))/2.0
+        sioh42 = (sioh4in(k)+sioh4in(k+1))/2.0
+        t01    = (tempin(k)+tempin(k-1))/2.0
+        t02    = (tempin(k)+tempin(k+1))/2.0
+        s01    = (saltin(k)+saltin(k-1))/2.0
+        s02    = (saltin(k)+saltin(k+1))/2.0
 
         
-! DOUBT IN EXPORT and
-!        ExpPON   = SPOM  * pom_grad(k)                         
-!        ExpOpal  = SOpal * opal_grad(k)                         
-!        ExpCaCO3 = SCaCO3  * caco3_grad(k)                     
-!*****************************************************************************
+        no3_grad(k) = ((w1+w2)/2.0) * (no31 - no32)/(dz)
+        sioh4_grad(k) = ((w1+w2)/2.0) * (sioh41 - sioh42)/(dz)
+        t0_grad(k)    = ((w1+w2)/2.0)  * (t01 - t02)/(dz)
+        s0_grad(k)    = ((w1+w2)/2.0) * (s01 - s02)/(dz)
+
+        else
+        w1 = (we_prof(k-1)+we_prof(k))/2.0
+        w2 = (we_prof(k)+we_prof(k))/2.0
+
+        no31 = (no3in(k)+no3in(k))/2.0
+        no31 = (no3in(k-1)+no3in(k))/2.0
+        no32 = (no3in(k)+no3in(k))/2.0
+        sioh41 = (sioh4in(k-1)+sioh4in(k))/2.0
+        sioh42 = (sioh4in(k)+sioh4in(k))/2.0
+        t01   = (tempin(k-1)+tempin(k))/2.0
+        t02   = (tempin(k)+tempin(k))/2.0
+        s01   = (saltin(k-1)+saltin(k))/2.0
+        s02   = (saltin(k)+saltin(k))/2.0
+
+        no3_grad(k) =  ((w1+w2)/2) * (no31 - no32)/(dz)
+        sioh4_grad(k) = ((w1+w2)/2) * (sioh41 - sioh42)/(dz)
+        t0_grad(k)    = ((w1+w2)/2)  * (t01 - t02)/(dz)
+        s0_grad(k)    = ((w1+w2)/2) * (s01 - s02)/(dz)
+
+        end if
         
-!        ExcNO3   = no3_grad(k)                                
-                                                                !no3_grad(k) is not
-                                                                !simply a gradient term it is gradient * wvelocity term.same in
-                                                                !sioh4_grad(k)
-!        ExcSiOH4 = sioh4_grad(k)                                !(ExcvSIOH4) * sioh4_grad(k)
-!        ExcT0    = t0_grad(k)
-!        ExcS0    = s0_grad(k)
+        ExcNO3   = no3_grad(k)
+        ExcSiOH4 = sioh4_grad(k)
+        ExcT0    = t0_grad(k)
+        ExcS0    = s0_grad(k)
 
-!***********************old nemuro exchange and
-!        ExpPON   =   1.0*SPOM  /100.0 * POM
-!         ExpOpal  =   1.0*SOpal / 100.0 * Opal
-!         ExpCaCO3 =   1.0*SCaCO3 /100.0 * CaCO3 
-!**********************************************************************************************************
-!         ExcNO3   =  ExcTime * ( TNO3d   - NO3   )
-!         ExcSiOH4 = ExcTime * ( TSiOH4d - SIOH4 )
-!!**********************************************************************************************************
-!       go to 101 !PROFILE METHOD
-         Z_c = 55.0  !meter
-         kzc = 51    !11         
-         kzcp = kzc + 1
+        Z_c      = 55.0
+        kzc      = 51    !51 !51
+        kzcp     = kzc + 1
+
+
+        if (k .le. kzc) then
+        grad_POM   = pomin(k)/dz!(pomin(k) - pomin(k+1))/dz
+        grad_Opal  = opalin(k)/dz!(opalin(k) - opalin(k+1))/dz
+        grad_CaCO3 = caco3in(k)/dz!(caco3in(k) - caco3in(k+1))/dz
         
-         if(k .le. kzc) then
-            grad_POM = pomin/dz
-            grad_Opal = opalin/dz
-            grad_CaCO3 = caco3in/dz
-            
-            POM_f = POM_f - (grad_POM * SPOM)
-            Opal_f = Opal_f - (grad_Opal * SOpal )
-
-!            POM_F_depth = POM_F_depth  + max(0.0, POM) * dz 
-!            Opal_F_depth = Opal_F_depth + max(0.0,Opal) * dz
-
-!            POM_F_Z(k)   = 0.0
-!            Opal_F_Z(k)  = 0.0
-!           CaCO3_F_Z(k) = 0.0
-         endif
-
-!         POM_F_depth = max(0.0, POM_F_depth)
-!         print *, "Opal_F_depth=", Opal_F_depth 
-!         Opal_F_depth = max(0.0, Opal_F_depth)
+        !print*, k, grad_POM, grad_Opal, grad_CaCO3
         
-!         if((k.ge.kzc).and.(k.le.km)) then
-!         POM_F_Z(k) = POM_F_depth *  ((k*dz)/Z_c)**(-0.9) 
-!
-!         Opal_F_Z(k) = Opal_F_depth *  ((k*dz)/Z_c)**(-0.9) !a=0.9 ref the papr for
-!!        Opal_F_Z(k) =  r_Si * Opal_F_depth * exp(-((k*dz)-(Z_c))/d) 
-!!        CaCO3_F_Z(k) = r_Cp * CaCO3_F_depth * exp(-((k*dz)-(Z_c))/d) 
-!!         POM_F_Z,Opal_F_Z,CaCO3_F_Z = flux of pom opal and caco3 at a
-!         
-!        end if
-         
-!         if(k.ge.kzcp) then
-!         POM_f = POM_f + ((POM_F_Z(k-1)-POM_F_Z(k))/dz)
-!         Opal_f = Opal_f + ((Opal_F_Z(k-1)-Opal_F_Z(k))/dz)
-!!        Opal_f = Opal_f - ((Opal_F_Z(k-1)-Opal_F_Z(k))/dz)/(86400*10)
-!!        CaCO3_f = CaCO3_f - ((CaCO3_F_Z(k)-CaCO3_F_Z(k-1))/dz)
-!         end if
-
-!101     continue
-
-
-!**************************************************************
-!         NO3_f   = NO3_f - ExcNO3  
-!         SIOH4_f = SIOH4_f - ExcSiOH4 
-!         POM_f   = POM_f   - ExpPON *0.0 
-!         Opal_f  = Opal_f  - ExpOpal *0.0
-!         CaCO3_f = CaCO3_f - ExpCaCO3 *0.0
         
+        POM_f   = POM_f - (grad_POM * SPOM)
+        Opal_f  = Opal_f - (grad_Opal * SOpal)
+        !CaCO3_f = CaCO3_f - (grad_CaCO3 * SCaCO3)
+
+        POM_F_depth  = POM_F_depth  + max(0.0, POM) * dz
+        Opal_F_depth = Opal_F_depth + max(0.0, Opal)* dz
+
+        POM_F_Z(k)   = 0.0
+        Opal_F_Z(k)  = 0.0
+        !CaCO3_F_Z(k) = 0.0
+
+        end if
+
+        POM_F_depth = max(0.0, POM_F_depth)
+        Opal_F_depth = max(0.0, Opal_F_depth)
+
+        if((k.ge.kzc).and.(k.le.km)) then
+        POM_F_Z(k) = POM_F_depth *  ((k*dz)/Z_c)**(-0.9)
+        Opal_F_Z(k) = Opal_F_depth *  ((k*dz)/Z_c)**(-0.9)
+        end if
+
+        if(k.ge.kzcp) then
+        POM_f = POM_f + ((POM_F_Z(k-1)-POM_F_Z(k))/dz)
+        Opal_f = Opal_f + ((Opal_F_Z(k-1)-Opal_F_Z(k))/dz)
+        end if
+        !**************************************************************
+        
+        
+        NO3_f   = NO3_f  -  ExcNO3 - ((NO3 - nit_relax)/D2S/30.0)  
+        SIOH4_f = SIOH4_f -ExcSiOH4 - ((SIOH4 - sil_relax)/D2S/30.0) 
+        !*************************************
+
+        
+                
         PS = max(0.0, PS + PS_f*dt)
         PL = max(0.0, PL + PL_f*dt)
         ZS = max(0.0, ZS + ZS_f*dt)
@@ -758,11 +1013,9 @@ subroutine nemuro ( PS, PL, ZS, ZL, ZP, NO3, NH4, POM, DOM, SIOH4, Opal, &
         TALK =TALK + TALK_f * dt                
 !        T0 = T0 - (ExcT0 * dt)                 
 !        S0 = S0 - (ExcS0 * dt)                 
-
         return
   end subroutine nemuro
-
-
+        
   function Monod (a, b)
     real :: a, b, Monod
     Monod = a/(a+b)
