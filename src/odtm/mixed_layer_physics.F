@@ -49,7 +49,7 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
         real :: sst_in, qs, ql, qb, rAlpha1, rL2, qnet_in, pme_in, rLATin
         real :: rLATMax, rvr_runoff, relax_South, relax_East, relax_on_off
         real :: alpha_rgm, alpha_rgt, beta_mldm, beta_mldt, gama
-        real :: rdrag, widS, widE, rwall
+        real :: rdrag, widS, widE, entr_mom
         !! Here is the start of Mixed Layer Model
 
         !added by anju 02July2020
@@ -257,7 +257,7 @@ c         if (i .ge. imt-widE+1) pvort(i,2,j) = (widE+i-imt)/widE
          endif
 
          do kk = 1,kmax
-         SMCoeff(i,j,kk) = entr_flux(kk) * rkmh(i,j)
+         SMCoeff(i,j,kk) = we_prof(kk) * rkmh(i,j)
          SHCoeff(i,j,kk) = SH(kk) * rkmh(i,j)
          enddo
 

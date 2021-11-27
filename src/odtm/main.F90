@@ -254,8 +254,8 @@ program main
 
         call mpp_clock_begin(mld_clk)
         call mixed_layer_physics(we_profin(0:kmaxMYM+1),sswin) !we_prof
-        call mpp_update_domains(uvel(:,:,:,2),domain)
-        call mpp_update_domains(vvel(:,:,:,2),domain)
+!        call mpp_update_domains(uvel(:,:,:,2),domain)  ! Is it required? 10Aug2021
+!        call mpp_update_domains(vvel(:,:,:,2),domain)  ! Is it required? 10Aug2021
         call mpp_clock_end(mld_clk)
 
         call mpp_clock_begin(nemuro_clk)

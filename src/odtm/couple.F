@@ -54,7 +54,7 @@
         real :: diffuse_temp, diffuse_salt, rtheta_vu, rtheta_vd
         real :: diffuse_tracers(ntracers)
         real :: relax_on_off, gama, diffuse_MY, diffuse_tr
-        real :: relax_south, widS, relax_East, widE, rdrag
+        real :: relax_south, widS, relax_East, widE, rdrag, entr_mom
         real :: rtemp1, rtemp2, rtemp3, rtemp4
         real :: tracedubdxmld(kmaxMYM,4+ntracers), tracedvbdymld(kmaxMYM,4+ntracers)
         integer :: hstart, hend, ii, jj, kk, tau_index
@@ -186,17 +186,20 @@
 
 #include "cparam.h"
 
+	rtemp1 = rdx(i) * rad2deg
+        rtemp2 = rdy(j) * rad2deg
+	
          temp(i,j,kk,2) = temp(i,j,kk,2) 
      &   - (tracedubdxmld(kk,1)
      &   + tracedvbdymld(kk,1)) * dt* beta_mldt * rkmh(i,j)
-     &   + diffuse_temp * diffuse_MY * dt * rkmh(i,j)
-     &   -  (temp(i,j,kk,2) -  temp_read(i,j,kk,month)) * dt * sec2day * 0.0
+     &   + diffuse_temp * diffuse_MY * max(rtemp1, rtemp2) * dt * rkmh(i,j)
+     &   -  (temp(i,j,kk,2) -  temp_read(i,j,kk,month)) * dt * sec2day * 0.0333
 
          salt(i,j,kk,2) = salt(i,j,kk,2) 
      &   - (tracedubdxmld(kk,2)
      &   + tracedvbdymld(kk,2)) *dt* beta_mldt * rkmh(i,j)
-     &   + diffuse_salt * diffuse_MY * dt * rkmh(i,j)
-     &   -  (salt(i,j,kk,2) -  salt_read(i,j,kk,month)) * dt * sec2day * 0.0
+     &   + diffuse_salt * diffuse_MY * max(rtemp1, rtemp2) * dt * rkmh(i,j)
+     &   -  (salt(i,j,kk,2) -  salt_read(i,j,kk,month)) * dt * sec2day * 0.0333
 
          uvel(i,j,kk,2) = uvel(i,j,kk,2) 
      &   - (tracedubdxmld(kk,3)
@@ -342,7 +345,7 @@
 
 
         diffuse_temp = rtemp3 + rtemp6
-        if (rtemp3 .eq. 0.0 .or. rtemp6 .eq. 0.0) diffuse_temp = 0.0 !Prajeesh 
+!        if (rtemp3 .eq. 0.0 .or. rtemp6 .eq. 0.0) diffuse_temp = 0.0 !Prajeesh 
 
 
         rtemp1 = rkmh(iip,jj)*
@@ -358,7 +361,7 @@
         rtemp6 = (rtemp4 - rtemp5)*rdyh(ii,jj)
 
         diffuse_salt = rtemp3 + rtemp6
-        if (rtemp3 .eq. 0.0 .or. rtemp6 .eq. 0.0) diffuse_salt = 0.0 !Prajeesh 
+!        if (rtemp3 .eq. 0.0 .or. rtemp6 .eq. 0.0) diffuse_salt = 0.0 !Prajeesh 
 
         return
         end subroutine tsuv_diffuse
