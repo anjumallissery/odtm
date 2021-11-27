@@ -9,7 +9,7 @@
         use size_mod, only : salt, uvel, vvel, rdx, rdxh, rdy, rdyh
         use size_mod, only : temp_read, salt_read, month, theta, kmaxMYM
         use size_mod, only : temp, rdxu, rkmh, rdy, rdyv, salt, rdxh, rdyh
-        use param_mod, only : day2sec, dt, sec2day
+        use param_mod, only : day2sec, dt, sec2day, rad2deg
 
 
         implicit none
