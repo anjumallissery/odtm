@@ -18,6 +18,8 @@ program main
         init_size, denss, rmld_misc, rdx, rdy, rkmt, we_upwel, wd, we, pme_corr, temp_read, salt_read, mask
 
     use param_mod, only : day2sec, dpm, dt, dtts, dyd, loop_day, loop_total, nmid, rnmid, sum_adv, deg2rad
+    use nemuro_mod, only : initialize_nemuro, diag_out_nemuro, &
+                    save_restart_nemuro, ntracers, tr, nemuro_driver
     
     use momentum_mod, only : momentum
     use tracer_mod, only : tracer, rgm_zero_tracer_adv
@@ -57,6 +59,10 @@ program main
     real :: age_time, day_night, rlct, depth_mld
     type(time_type) :: time, time_step, time_restart, start_time
     integer :: months=0, days=0, hours=0, minutes=0, seconds=0
+    !added by anju 03Aug2020
+    real :: we_profin(0:kmaxMYM+1)
+    real,allocatable :: sswin(:,:,:)
+    !********************        
 
     integer :: domain_layout(2), used
 
@@ -68,7 +74,7 @@ program main
     integer :: id_mld, id_tke, id_rif, id_mlen, id_st_h, id_st_m, id_pme
     integer :: id_sphm, id_uwnd, id_vwnd, id_ssw, id_cld, id_chl, id_rvr
 
-    integer :: init_clk, main_clk, clinic_clk, mld_clk, filter_clk, couple_clk
+    integer :: init_clk, main_clk, clinic_clk, mld_clk, filter_clk, couple_clk, nemuro_clk
 
     type(domain2d) :: domain
 
@@ -80,6 +86,9 @@ program main
     logical :: override
     integer :: restart_interval(6) = 0, layout(2)
     character (len=32) :: timestamp
+    integer :: ntr
+    !real :: dz_MYM(kmaxMYM)=[(real(ii)*5.0,ii=1,kmaxMYM)]
+    real :: dz_MYM(kmaxMYM)=[(real(ii)*0.0 + 5.0,ii=1,kmaxMYM)] !added by anju08Aug2020
     
     namelist /main_nml/ restart_interval, layout, rgm_zero_tracer_adv, dt, & 
         months, days, hours, minutes, seconds
@@ -91,6 +100,7 @@ program main
     main_clk = mpp_clock_id('Main Loop')
     clinic_clk = mpp_clock_id('Clinic')
     mld_clk = mpp_clock_id('MLD')
+    nemuro_clk = mpp_clock_id('NEMURO')
     filter_clk = mpp_clock_id('Filter')
     couple_clk = mpp_clock_id('Couple')
 
@@ -209,6 +219,9 @@ program main
         call mpp_update_domains(uvel(:,:,:,2),domain)
         call mpp_update_domains(vvel(:,:,:,1),domain)
         call mpp_update_domains(vvel(:,:,:,2),domain)
+        do ntr = 1, ntracers
+            call mpp_update_domains(tr(:,:,:,1,ntr),domain)
+        end do
 
         call mpp_clock_begin(clinic_clk)
         call clinic(domain)
@@ -240,10 +253,18 @@ program main
 
 
         call mpp_clock_begin(mld_clk)
-        call mixed_layer_physics
+        call mixed_layer_physics(we_profin(0:kmaxMYM+1),sswin) !we_prof
         call mpp_update_domains(uvel(:,:,:,2),domain)
         call mpp_update_domains(vvel(:,:,:,2),domain)
         call mpp_clock_end(mld_clk)
+
+        call mpp_clock_begin(nemuro_clk)
+        !added by anju 04Aug2020
+        
+        call nemuro_driver(Time,temp(:,:,:,2),salt(:,:,:,2),ssw,dt,dz_MYM,domain,we_profin(0:kmaxMYM+1),loop,sswin,imt,jmt,gdx(:),gdy(:)) !sswin(kmax) added by anju 16Aug2020
+                            
+        !*************************************
+        call mpp_clock_end(nemuro_clk)
 
         call balance_pme()
 
@@ -257,6 +278,7 @@ program main
     
         call print_date(time)
         call send_data_diag(time)
+        call diag_out_nemuro(time)
 
         time = time + time_step
    
@@ -378,6 +400,7 @@ program main
         allocate ( lmask(isc:iec,jsc:jec) ) 
         allocate ( lmask3(isc:iec,jsc:jec,km) )
         allocate ( lmask3m(isc:iec,jsc:jec,kmaxMYM) )
+        allocate ( sswin(isc:iec,jsc:jec,kmaxMYM) )
 
         lmask=.false.; lmask3 = .false.; lmask3m = .false.
 
@@ -415,6 +438,7 @@ program main
         id_depth = diag_axis_init('depth', rdepth, 'meters', &
             cart_name='Z', long_name='depth')
 
+        call initialize_nemuro(Time, domain, kmaxMYM, id_lon, id_lat, id_depth_mld)
         id_airt = register_diag_field('odtm', 'airt', (/id_lon,id_lat/), init_time=Time, &
                  long_name='Air Temperature', units='deg-C',missing_value=FILL_VALUE)
 
@@ -885,9 +909,11 @@ program main
 
         if (present(timestmp)) then
             call save_restart(restart_odtm,timestmp)
+            call save_restart_nemuro(timestamp)
             odtm_res_file = trim(timestmp)//'.'//trim(odtm_res_file)
         else
             call save_restart(restart_odtm)
+            call save_restart_nemuro()
         endif
 
         if (mpp_pe() == mpp_root_pe()) then

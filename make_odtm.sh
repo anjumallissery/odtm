@@ -71,7 +71,7 @@ FMS_UTILITIES="$FMS_UTILS/include \
 				$FMS_UTILS/axis_utils \
 				$FMS_UTILS/mosaic"
 
-paths="$rootdir/src/odtm"
+paths="$rootdir/src/odtm $rootdir/src/nemuro"
 
 mkdir -p $execdir/lib_fms
 

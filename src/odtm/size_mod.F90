@@ -1,12 +1,12 @@
 
 module size_mod
-    
+    use moto_mod, only: kmaxMYM => kmax    
   !	grid specification for the model
 
   implicit none
 
   integer, parameter :: nLayer=6, km=nLayer, lm=13
-  integer, parameter :: NPP=225, nn=2, kmaxMYM=51, kclim=201
+  integer, parameter :: NPP=225, nn=2, kclim=201
   integer, parameter :: taum = 1, taun = 2, taup = 3, taus = 4
   
   integer :: imt, jmt, halo=1

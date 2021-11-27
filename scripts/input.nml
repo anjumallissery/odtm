@@ -1,11 +1,13 @@
 &main_nml
 	restart_interval=0,3,0,0,0,0 !yy,mm,dd,hh,mi,sc
 	!layout = 8,1  !x,y
-	months = 1
-  days = 0
-  hours = 0
+	days = 60
+  dt = 1800
 /
 
+&nemuro_nml
+  use_this_module = .true.
+/
 
 
 &diag_manager_nml

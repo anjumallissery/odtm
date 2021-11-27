@@ -3,31 +3,38 @@
 
         use implicit_thomas_mod, only : implicit_vmix
 
+        implicit none
+
+        integer, parameter :: kmax=51
+
         contains
 
-        SUBROUTINE MT1 (tempin, saltin, uvelin, vvelin, tauxin,tauyin, 
-     &     qnet, sswin, pmein, rLATin,dt_rg,SM,SH,we_prof, we_baro, icval,R,
+        SUBROUTINE MT1 (tempin, saltin, tr_in, uvelin, vvelin, tauxin,tauyin, 
+     &     qnet, sswin, pmein, ntr, rLATin,dt_rg,SM,SH,we_prof, we_baro, icval,R,
      &     entr_flux, speed, pme_eps, rvr_runoff,
-     &     diag1, diag2, diag3, diag4, diag5, diag6,ii,jj)
+     &     diag1, diag2, diag3, diag4, diag5, diag6,ii,jj) 
 
         implicit none
+        
+
  
 ! ONE DIMENSIONAL MIXED LAYER MODEL
-!      DIMENSION UN(51),VN(51),TEN(51),SAN(51),
-      real UN(51),VN(51),TEN(51),SAN(51),
-     1 U1(0:51),V1(0:51),TE1(0:51),SA1(0:51),Z(51),Z1(51),
-     2 rQ(51),SM(51),SH(51),R(51),YQ(51),SM1(51),SH1(51)
-        real tempin(51), saltin(51)
-        real uvelin(51), vvelin(51), we_prof(0:52), we_baro
-        real sswin(51), zave
+
+      real UN(kmax),VN(kmax),TEN(kmax),SAN(kmax), TRN(kmax,ntr),
+     1 U1(0:kmax),V1(0:kmax),TE1(0:kmax),SA1(0:kmax),TR1(0:kmax,ntr),Z(kmax),Z1(kmax),
+     2 rQ(kmax),SM(kmax),SH(kmax),R(kmax),YQ(kmax),SM1(kmax),SH1(kmax)
+        real tempin(kmax), saltin(kmax), tr_in(kmax,ntr)
+        real uvelin(kmax), vvelin(kmax), we_prof(0:kmax+1), we_baro
+        real sswin(kmax), zave
         real tauxin, tauyin, qnet, pmein, rLATin, dt_rg
         real :: dq, mf, qf, cp, h, ds, pme_eps
         integer :: nloop
+        integer, intent(in) :: ntr
         integer ic(2)
-        real :: uvloop(51), entr_flux(51)
-        real :: diag1(51), diag2(51), diag3(51)
-        real :: diag4(51), diag5(51), diag6(51)
-        integer :: ii, jj 
+        real :: uvloop(kmax), entr_flux(kmax)
+        real :: diag1(kmax), diag2(kmax), diag3(kmax)
+        real :: diag4(kmax), diag5(kmax), diag6(kmax)
+        integer :: ii, jj, ntrn
         
         real :: a1, a2, b1, b2, c1, day, deg2rad, dt, dtz, dz, dz2, dzz, f0, g1, g2
         real :: ga, r5, ro, y0, z0, z0d, al, bs, e1, e2, e3, e4, e5, e6, e7, f1, f2
@@ -45,7 +52,7 @@
 ! SM,SH=MIXING COEFFICIENTS
 ! R=RICHARDSON NUMBER,YQ=MIXING LENGTH
 ! NUMBER OF GRIDS
-      NAZ=50
+      NAZ=kmax-1
       NAZ1=NAZ+1
       NAZ2=NAZ+2
 ! GRID SIZE (THICKNESS IN METER)
@@ -64,12 +71,16 @@
 ! STABLE STRATIFICATION
         TEN(M)=tempin(M) !10.0-0.02*(M-1)! temp variation
         SAN(M)=saltin(M) 
-!      TEN(M)=20.0-0.01*(M-1)
-!      SAN(M)=33.0-0.001*(M-1)
+        do ntrn = 1, ntr
+            TRN(M,ntrn)=tr_in(M,ntrn) 
+        end do
       U1(M)=UN(M)
       V1(M)=VN(M)
       TE1(M)=TEN(M)
       SA1(M)=SAN(M)
+      do ntrn = 1, ntr
+        TR1(M,ntrn)=TRN(M,ntrn)
+      end do
    10 CONTINUE
 
         entr_flux(:) = 0.0
@@ -133,7 +144,8 @@
       G3=G3*XK2
       G4=G4*SQRT(B1*3.0*A1*(G1-C1))*XK2*Z0
       XK=(-1.0)*0.5*XK
-      AL=0.04
+      AL=0.4 !anju changed from 0.04 to 0.4 08Aug2020
+
 ! COEFFICIENTS FOR NEAR SURFACE INTERPOLATION
       H2=ALOG((1.0+Z0D)/(2.0+Z0D))
       H3=ALOG(Z0D/(1.0+Z0D))
@@ -158,12 +170,18 @@
 
         TE1(0) = TE1(1)
         SA1(0) = SA1(1)
+        do ntrn = 1, ntr
+            TR1(0,ntrn) = TR1(1,ntrn)
+        end do
         U1(0)  = U1(1)
         V1(0)  = V1(1)
-        TE1(51) = TE1(50)
-        SA1(51) = SA1(50)
-        U1(51)  = U1(50)
-        V1(51)  = V1(50)
+        TE1(kmax) = TE1(kmax-1)
+        SA1(kmax) = SA1(kmax-1)
+        do ntrn = 1, ntr
+            TR1(kmax,ntrn) = TR1(kmax-1,ntrn)
+        end do
+        U1(kmax)  = U1(kmax-1)
+        V1(kmax)  = V1(kmax-1)
         
 ! TWX=1.0
 ! TWY=1.0
@@ -180,7 +198,9 @@
       DO 23 M=1,NAZ
       SZ=0.5*(SA1(M)+SA1(M+1))-30.0
 ! THERMAL EXPANSION COEFFICIENT
-      BT=((1.3-0.025*SZ)*(TE1(M)+TE1(M+1)) + (3.3+0.325*SZ))*R5  
+      !BT=((1.3-0.025*SZ)*(TE1(M)+TE1(M+1)) + (3.3+0.325*SZ))*R5  
+      BT=((1.3-0.025*SZ)*(TE1(M)+TE1(M+1))*0.5 + (3.3+0.325*SZ))*R5 !0.5
+                                                                    !in this equation is added by anju 13Aug2020 
 !NOTE FOR CORRECTION, NEED one EXTRA *0.5
       IF(M.EQ.1) GO TO 24
 ! STRATIFICATION
@@ -277,6 +297,9 @@
       DO 60 M=1,NAZ
         TEN(M) = TEN(M) - we_prof(M) * (TE1(M-1) - TE1(M+1))*DT/DZ2
         SAN(M) = SAN(M) - we_prof(M) * (SA1(M-1) - SA1(M+1))*DT/DZ2
+        do ntrn = 1, ntr
+            TRN(M,ntrn) = TRN(M,ntrn) - we_prof(M) * (TR1(M-1,ntrn) - TR1(M+1,ntrn))*DT/DZ2
+        end do
         UN(M) = UN(M) - we_prof(M) * (U1(M-1) - U1(M+1))*DT/DZ2
         VN(M) = VN(M) - we_prof(M) * (V1(M-1) - V1(M+1))*DT/DZ2
         entr_flux(M) = entr_flux(M) + we_prof(M) * (SA1(M-1) -
@@ -285,6 +308,9 @@
       DO 61 M=2,NAZ-1
         TEN(M) = TEN(M) - (we_baro*TE1(M-1) - we_baro*TE1(M+1))*DT/DZ2
         SAN(M) = SAN(M) - (we_baro*SA1(M-1) - we_baro*SA1(M+1))*DT/DZ2
+        do ntrn = 1, ntr 
+            TRN(M,ntrn) = TRN(M,ntrn) - (we_baro*TR1(M-1,ntrn) - we_baro*TR1(M+1,ntrn))*DT/DZ2
+        end do
    61 CONTINUE
 !        UN(1) = UN(1) + TX*1.0*DT/DZ
 !        UN(1) = UN(1) + TX*1.0*DT/DZ
@@ -320,6 +346,8 @@
         SAN(1)= SAN(1) + ds
         SAN(2)= SAN(2) - rvr_runoff * 35.0*DT/DZ
 
+        !print *, "What about this ??? Prajeesh  line no: 333 moto_v7.F"
+
         DO M=2,NAZ
         TEN(M)=TEN(M) + (sswin(M-1)-sswin(M+1-1)) * DT/(RO*cp*DZ)
         ENDDO
@@ -328,12 +356,18 @@
         call implicit_vmix (SM, DZ, DT, NAZ1, VN, VN)
         call implicit_vmix (SH, DZ, DT, NAZ1, TEN, TEN)
         call implicit_vmix (SH, DZ, DT, NAZ1, SAN, SAN)
+        do ntrn = 1, ntr
+            call implicit_vmix (SH, DZ, DT, NAZ1, TRN(:,ntrn), TRN(:,ntrn))
+        end do
 ! REPLACE THE OLD VALUES WITH THE NEW VALUES
    43 DO 52 M=1,NAZ 
       U1(M)=UN(M) 
       V1(M)=VN(M)
       TE1(M)=TEN(M)
       SA1(M)=SAN(M)
+      do ntrn = 1, ntr
+        TR1(M,ntrn)=TRN(M,ntrn)
+      end do
    52 CONTINUE
 ! TIME STEPS FOR 0.1 DAY
 ! PRINT OUT THE RESULTS
@@ -344,7 +378,6 @@
   102 FORMAT(1H ,51F8.2)
 !      WRITE(6,102) (10.0*VN(M),M=1,51,1)
 !      WRITE(6,102) (TEN(M),M=1,51,1)
-!      WRITE(6,102) (SAN(M)-30.0,M=1,51,1)
 !      WRITE(6,102) (100.0*SM(M),M=1,11,1)
 !      WRITE(6,102) (100.0*SH(M),M=1,11,1)
 ! TIME STEPS FOR 0.1 DAY X 50
@@ -357,6 +390,9 @@
           DO M=1,NAZ
         tempin(M) = TEN(M)
         saltin(M) = SAN(M)
+        do ntrn = 1, ntr
+            tr_in(M,ntrn) = TRN(M,ntrn)
+        end do
         uvelin(M) = UN(M)
         vvelin(M) = VN(M)
         entr_flux(M) = entr_flux(M) /nloop
